@@ -1,0 +1,310 @@
+<Window x:Class="TS3ScreenShare.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:models="clr-namespace:TS3ScreenShare.Models"
+        Title="TS3 Screenshare"
+        Height="600" Width="900"
+        MinHeight="500" MinWidth="750"
+        WindowStyle="None"
+        AllowsTransparency="True"
+        Background="Transparent"
+        ResizeMode="CanResizeWithGrip">
+
+    <Border Background="{StaticResource BgBrush}"
+            BorderBrush="{StaticResource BorderBrush}"
+            BorderThickness="1"
+            CornerRadius="8">
+        <Grid>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="36"/>
+                <RowDefinition Height="*"/>
+            </Grid.RowDefinitions>
+
+            <!-- TITLEBAR -->
+            <Border Grid.Row="0"
+                    Background="{StaticResource SurfaceBrush}"
+                    CornerRadius="8,8,0,0"
+                    MouseLeftButtonDown="Titlebar_MouseLeftButtonDown">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+
+                    <StackPanel Grid.Column="0" Orientation="Horizontal"
+                                VerticalAlignment="Center" Margin="12,0">
+                        <TextBlock Text="▶" Foreground="{StaticResource AccentBrush}"
+                                   FontSize="12" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                        <TextBlock Text="TS3 Screenshare" Foreground="{StaticResource TextBrush}"
+                                   FontSize="13" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                    </StackPanel>
+
+                    <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                        <Button Content="─" Style="{StaticResource TitlebarBtn}" Click="BtnMinimize_Click"/>
+                        <Button Content="□" Style="{StaticResource TitlebarBtn}" Click="BtnMaximize_Click"/>
+                        <Button Content="✕" Style="{StaticResource TitlebarBtnClose}" Click="BtnClose_Click"/>
+                    </StackPanel>
+                </Grid>
+            </Border>
+
+            <!-- CONTENT -->
+            <Grid Grid.Row="1">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="240"/>
+                    <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
+
+                <!-- SIDEBAR -->
+                <Border Grid.Column="0"
+                        Background="{StaticResource SurfaceBrush}"
+                        BorderBrush="{StaticResource BorderBrush}"
+                        BorderThickness="0,0,1,0">
+                    <DockPanel Margin="12">
+
+                        <!-- Status + connect button -->
+                        <StackPanel DockPanel.Dock="Top">
+                            <TextBlock Text="// STATUS" Foreground="{StaticResource DimBrush}"
+                                       FontSize="10" FontFamily="Consolas" Margin="0,0,0,8"/>
+
+                            <Grid Margin="0,0,0,4">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <Ellipse x:Name="DotTS3" Width="8" Height="8"
+                                         Fill="{StaticResource DimBrush}" VerticalAlignment="Center"/>
+                                <TextBlock Grid.Column="1" Text="TeamSpeak 3"
+                                           Foreground="{StaticResource TextBrush}"
+                                           FontSize="12" Margin="8,0,0,0" VerticalAlignment="Center"/>
+                                <TextBlock Grid.Column="2" x:Name="ValTS3" Text="Disconnected"
+                                           Foreground="{StaticResource DimBrush}" FontSize="11"/>
+                            </Grid>
+
+                            <Grid Margin="0,0,0,12">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <Ellipse x:Name="DotRelay" Width="8" Height="8"
+                                         Fill="{StaticResource DimBrush}" VerticalAlignment="Center"/>
+                                <TextBlock Grid.Column="1" Text="Relay Server"
+                                           Foreground="{StaticResource TextBrush}"
+                                           FontSize="12" Margin="8,0,0,0" VerticalAlignment="Center"/>
+                                <TextBlock Grid.Column="2" x:Name="ValRelay" Text="Disconnected"
+                                           Foreground="{StaticResource DimBrush}" FontSize="11"/>
+                            </Grid>
+
+                            <TextBlock Text="// CLIENTQUERY API KEY" Foreground="{StaticResource DimBrush}"
+                                       FontSize="10" FontFamily="Consolas" Margin="0,0,0,4"/>
+                            <Grid Margin="0,0,0,8">
+                                <PasswordBox x:Name="PwdApiKey"
+                                             Foreground="{StaticResource TextBrush}"
+                                             Background="{StaticResource BgBrush}"
+                                             BorderBrush="{StaticResource BorderBrush}"
+                                             BorderThickness="1"
+                                             FontFamily="Consolas" FontSize="11"
+                                             Padding="6,4,32,4"
+                                             CaretBrush="{StaticResource AccentBrush}"/>
+                                <TextBox x:Name="TxtApiKey"
+                                         Visibility="Collapsed"
+                                         Foreground="{StaticResource TextBrush}"
+                                         Background="{StaticResource BgBrush}"
+                                         BorderBrush="{StaticResource BorderBrush}"
+                                         BorderThickness="1"
+                                         FontFamily="Consolas" FontSize="11"
+                                         Padding="6,4,32,4"
+                                         CaretBrush="{StaticResource AccentBrush}"/>
+                                <Button x:Name="BtnToggleApiKey"
+                                        Content="👁"
+                                        Width="26" Height="26"
+                                        HorizontalAlignment="Right"
+                                        VerticalAlignment="Center"
+                                        Margin="0,0,3,0"
+                                        Background="Transparent"
+                                        BorderThickness="0"
+                                        FontSize="13"
+                                        Cursor="Hand"
+                                        Opacity="0.5"
+                                        Click="BtnToggleApiKey_Click"/>
+                            </Grid>
+
+                            <TextBlock Text="// RELAY URL" Foreground="{StaticResource DimBrush}"
+                                       FontSize="10" FontFamily="Consolas" Margin="0,0,0,4"/>
+                            <TextBox x:Name="TxtRelayUrl"
+                                     Text="wss://0.0.0.0:5000"
+                                     Foreground="{StaticResource TextBrush}"
+                                     Background="{StaticResource BgBrush}"
+                                     BorderBrush="{StaticResource BorderBrush}"
+                                     BorderThickness="1"
+                                     FontFamily="Consolas" FontSize="11"
+                                     Padding="6,4" Margin="0,0,0,8"
+                                     CaretBrush="{StaticResource AccentBrush}"/>
+
+
+<Button x:Name="BtnConnect" Content="Connect"
+                                    Style="{StaticResource ConnectBtn}"
+                                    Click="BtnConnect_Click"/>
+
+                            <Rectangle Height="1" Fill="{StaticResource BorderBrush}" Margin="0,16,0,12"/>
+
+                            <TextBlock Text="// CHANNELS" Foreground="{StaticResource DimBrush}"
+                                       FontSize="10" FontFamily="Consolas" Margin="0,0,0,8"/>
+                        </StackPanel>
+
+                        <!-- Channel list -->
+                        <ScrollViewer VerticalScrollBarVisibility="Auto"
+                                      HorizontalScrollBarVisibility="Disabled">
+                            <ItemsControl x:Name="ChannelList">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate DataType="{x:Type models:SidebarItem}">
+                                        <Border x:Name="Row"
+                                                Background="Transparent"
+                                                Margin="{Binding Margin}"
+                                                CornerRadius="4" Padding="4,2"
+                                                Cursor="Hand">
+                                            <StackPanel Orientation="Horizontal">
+                                                <TextBlock x:Name="Icon"
+                                                           Text="# "
+                                                           Foreground="{StaticResource DimBrush}"
+                                                           FontFamily="Consolas" FontSize="11"
+                                                           VerticalAlignment="Center"/>
+                                                <TextBlock x:Name="Label"
+                                                           Text="{Binding Name}"
+                                                           Foreground="{StaticResource TextBrush}"
+                                                           FontSize="12"
+                                                           VerticalAlignment="Center"/>
+                                            </StackPanel>
+                                        </Border>
+                                        <DataTemplate.Triggers>
+                                            <DataTrigger Binding="{Binding IsChannel}" Value="False">
+                                                <Setter TargetName="Icon" Property="Text" Value="  "/>
+                                                <Setter TargetName="Label" Property="Foreground" Value="{StaticResource DimBrush}"/>
+                                                <Setter TargetName="Label" Property="FontSize" Value="11"/>
+                                            </DataTrigger>
+                                            <DataTrigger Binding="{Binding IsSelf}" Value="True">
+                                                <Setter TargetName="Label" Property="Foreground" Value="{StaticResource AccentBrush}"/>
+                                                <Setter TargetName="Label" Property="FontWeight" Value="SemiBold"/>
+                                            </DataTrigger>
+                                        </DataTemplate.Triggers>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </ScrollViewer>
+
+                    </DockPanel>
+                </Border>
+
+                <!-- MAIN CONTENT -->
+                <Grid Grid.Column="1" Background="{StaticResource BgBrush}">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="*"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+
+                    <!-- Video / placeholder / streams -->
+                    <Grid Grid.Row="0">
+                        <TextBlock x:Name="MainPlaceholder"
+                                   Text="Connect to TeamSpeak and select a stream"
+                                   Foreground="{StaticResource DimBrush}"
+                                   HorizontalAlignment="Center"
+                                   VerticalAlignment="Center"/>
+
+                        <!-- Active streams list -->
+                        <StackPanel x:Name="StreamsPanel"
+                                    Visibility="Collapsed"
+                                    VerticalAlignment="Center"
+                                    HorizontalAlignment="Center"
+                                    MinWidth="320">
+                            <TextBlock Text="// ACTIVE STREAMS"
+                                       Foreground="{StaticResource DimBrush}"
+                                       FontFamily="Consolas" FontSize="10"
+                                       Margin="0,0,0,12"/>
+                            <ItemsControl x:Name="StreamList">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <Border Background="{StaticResource SurfaceBrush}"
+                                                BorderBrush="{StaticResource BorderBrush}"
+                                                BorderThickness="1" CornerRadius="6"
+                                                Padding="12,8" Margin="0,0,0,6">
+                                            <Grid>
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="*"/>
+                                                    <ColumnDefinition Width="Auto"/>
+                                                </Grid.ColumnDefinitions>
+                                                <StackPanel>
+                                                    <TextBlock Text="{Binding StreamerUsername}"
+                                                               Foreground="{StaticResource AccentBrush}"
+                                                               FontWeight="SemiBold" FontSize="13"/>
+                                                    <TextBlock Text="{Binding ChannelName}"
+                                                               Foreground="{StaticResource DimBrush}"
+                                                               FontFamily="Consolas" FontSize="11"/>
+                                                </StackPanel>
+                                                <Button Grid.Column="1"
+                                                        Content="▶  Sledovat"
+                                                        Style="{StaticResource ConnectBtn}"
+                                                        Width="110"
+                                                        Tag="{Binding StreamId}"
+                                                        Click="BtnWatch_Click"/>
+                                            </Grid>
+                                        </Border>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </StackPanel>
+
+                        <Image x:Name="VideoDisplay"
+                               Stretch="Uniform"
+                               Visibility="Collapsed"
+                               HorizontalAlignment="Stretch"
+                               VerticalAlignment="Stretch"/>
+                    </Grid>
+
+                    <!-- Stream controls -->
+                    <Border Grid.Row="1"
+                            Background="{StaticResource SurfaceBrush}"
+                            BorderBrush="{StaticResource BorderBrush}"
+                            BorderThickness="0,1,0,0"
+                            Padding="16,10">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+
+                            <StackPanel Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Center">
+                                <Button x:Name="BtnStartStream"
+                                        Content="▶  Start stream"
+                                        Style="{StaticResource ConnectBtn}"
+                                        Width="160" Margin="0,0,12,0"
+                                        IsEnabled="False"
+                                        Click="BtnStartStream_Click"/>
+                                <TextBlock x:Name="StreamStatusText"
+                                           Text=""
+                                           Foreground="{StaticResource DimBrush}"
+                                           FontFamily="Consolas" FontSize="11"
+                                           VerticalAlignment="Center"/>
+                            </StackPanel>
+
+                            <Button x:Name="BtnMute"
+                                    Grid.Column="2"
+                                    Content="🔊"
+                                    Visibility="Collapsed"
+                                    HorizontalAlignment="Right"
+                                    Width="36" Height="36"
+                                    Background="Transparent"
+                                    BorderThickness="0"
+                                    FontSize="16"
+                                    Cursor="Hand"
+                                    Click="BtnMute_Click"
+                                    ToolTip="Mute audio"/>
+                        </Grid>
+                    </Border>
+                </Grid>
+
+            </Grid>
+        </Grid>
+    </Border>
+</Window>

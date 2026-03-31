@@ -1,0 +1,28 @@
+# Build output
+bin/
+obj/
+
+# Visual Studio
+*.user
+*.suo
+.vs/
+*.userosscache
+*.sln.docstates
+
+# Rider
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+ts3query.log
+
+# Secrets (never commit real credentials)
+appsettings.Production.json
+appsettings.Local.json
+
+# Test scripts
+test_ts3.ps1

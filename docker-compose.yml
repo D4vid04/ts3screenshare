@@ -1,0 +1,25 @@
+services:
+  relay:
+    image: d4vid04/ts3screenshare-server:latest
+    restart: unless-stopped
+    ports:
+      - "5174:5174"
+    environment:
+      # TeamSpeak ServerQuery credentials
+      - TS3ServerQuery__Host=localhost
+      - TS3ServerQuery__Port=10011
+      - TS3ServerQuery__Username=serveradmin
+      - TS3ServerQuery__Password=CHANGE_ME
+
+      # Optional: restrict streaming to specific server groups (comma-separated group IDs)
+      # - TS3ServerQuery__StreamingAllowedGroupIds__0=6
+      # - TS3ServerQuery__StreamingAllowedGroupIds__1=7
+
+      # Optional: block specific server groups from connecting
+      # - TS3ServerQuery__ConnectionBlockedGroupIds__0=8
+
+      # Optional: restrict streaming to specific channels
+      # - TS3ServerQuery__StreamingAllowedChannelIds__0=123
+
+      # Optional: shared hub key (leave empty to disable)
+      # - HubKey=CHANGE_ME
