@@ -1,0 +1,43 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows10.0.17763.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UseWPF>true</UseWPF>
+    <UseWindowsForms>true</UseWindowsForms>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.SignalR.Client" Version="10.0.5" />
+    <PackageReference Include="NAudio" Version="2.2.1" />
+    <PackageReference Include="SIPSorcery" Version="10.0.3" />
+    <PackageReference Include="SIPSorceryMedia.Encoders" Version="10.0.4" />
+    <PackageReference Include="SIPSorceryMedia.Windows" Version="8.0.14" />
+    <PackageReference Include="System.Drawing.Common" Version="10.0.5" />
+    <PackageReference Include="Websocket.Client" Version="5.3.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Remove="Shared\**" />
+    <Compile Remove="Server\**" />
+    <EmbeddedResource Remove="Shared\**" />
+    <EmbeddedResource Remove="Server\**" />
+    <None Remove="Shared\**" />
+    <None Remove="Server\**" />
+    <Page Remove="Shared\**" />
+    <Page Remove="Server\**" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Folder Include="Models\" />
+    <Folder Include="Views\" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="Shared\TS3ScreenShare.Shared.csproj" />
+  </ItemGroup>
+
+</Project>
