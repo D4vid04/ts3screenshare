@@ -23,6 +23,9 @@ public sealed class TS3ServerQueryOptions
 
     // ── Relay connection blocking ────────────────────────────────────────────
 
+    /// <summary>Server groups allowed to connect to the relay. Empty = everyone is allowed.</summary>
+    public List<string> ConnectionAllowedGroupIds { get; set; } = [];
+
     /// <summary>Server groups that cannot connect to the relay at all. Empty = nobody is blocked.</summary>
     public List<string> ConnectionBlockedGroupIds { get; set; } = [];
 
@@ -33,6 +36,9 @@ public sealed class TS3ServerQueryOptions
 
     /// <summary>Whether to check allowed server groups for streaming.</summary>
     public bool StreamingGroupCheckEnabled => IsConfigured && StreamingAllowedGroupIds.Count > 0;
+
+    /// <summary>Whether to check allowed server groups for relay connections.</summary>
+    public bool ConnectionAllowCheckEnabled => IsConfigured && ConnectionAllowedGroupIds.Count > 0;
 
     /// <summary>Whether to check blocked server groups for relay connections.</summary>
     public bool ConnectionBlockEnabled => IsConfigured && ConnectionBlockedGroupIds.Count > 0;
