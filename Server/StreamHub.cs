@@ -64,13 +64,20 @@ public sealed class StreamHub(
     }
 
     // ── Client announces its current TS3 channel ────────────────────────────
-    public async Task JoinChannel(string channelId)
+    public async Task JoinChannel(string channelId, string channelName = "")
     {
-        // Use server-verified clientDbId (never trust client-provided value)
-        var clientDbId = registry.GetVerifiedClientDbId(Context.ConnectionId) ?? "";
+        // Must be authenticated
+        var clientDbId = registry.GetVerifiedClientDbId(Context.ConnectionId);
+        if (clientDbId == null)
+        {
+            await Clients.Caller.SendAsync(HubEvents.ConnectionDenied, "Not authenticated.");
+            Context.Abort();
+            return;
+        }
 
-        // Check if client's groups are blocked from connecting to relay
-        if (queryOpts.CurrentValue.ConnectionBlockEnabled && !string.IsNullOrEmpty(clientDbId))
+        // Check server groups if allow or block lists are configured
+        var opts = queryOpts.CurrentValue;
+        if (opts.ConnectionAllowCheckEnabled || opts.ConnectionBlockEnabled)
         {
             IReadOnlyList<string>? groups = null;
             try { groups = await ts3Query.GetServerGroupsByDbIdAsync(clientDbId); }
@@ -81,10 +88,18 @@ public sealed class StreamHub(
 
             if (groups != null)
             {
-                var blocked = queryOpts.CurrentValue.ConnectionBlockedGroupIds;
-                if (groups.Any(g => blocked.Contains(g)))
+                if (opts.ConnectionBlockEnabled && groups.Any(g => opts.ConnectionBlockedGroupIds.Contains(g)))
                 {
                     logger.LogWarning("JoinChannel denied: cldbid={Cldbid} has blocked group [{Groups}]",
+                        clientDbId, string.Join(",", groups));
+                    await Clients.Caller.SendAsync(HubEvents.ConnectionDenied, "You are not allowed to connect.");
+                    Context.Abort();
+                    return;
+                }
+
+                if (opts.ConnectionAllowCheckEnabled && !groups.Any(g => opts.ConnectionAllowedGroupIds.Contains(g)))
+                {
+                    logger.LogWarning("JoinChannel denied: cldbid={Cldbid} lacks required group [{Groups}]",
                         clientDbId, string.Join(",", groups));
                     await Clients.Caller.SendAsync(HubEvents.ConnectionDenied, "You are not allowed to connect.");
                     Context.Abort();
@@ -100,6 +115,19 @@ public sealed class StreamHub(
 
         await Groups.AddToGroupAsync(Context.ConnectionId, $"channel-{channelId}");
 
+        // If this client has an active stream, move it to the new channel
+        if (oldChannelId != null && oldChannelId != channelId)
+        {
+            var moved = registry.MoveStreamToChannel(Context.ConnectionId, channelId, string.IsNullOrEmpty(channelName) ? channelId : channelName);
+            if (moved.HasValue)
+            {
+                var (oldInfo, newInfo) = moved.Value;
+                await Clients.Group($"channel-{oldInfo.ChannelId}").SendAsync(HubEvents.StreamRemoved, oldInfo.StreamId);
+                await Clients.Group($"channel-{newInfo.ChannelId}").SendAsync(HubEvents.StreamAdded, newInfo);
+                logger.LogInformation("Stream {StreamId} moved from channel {Old} to {New}", newInfo.StreamId, oldInfo.ChannelId, newInfo.ChannelId);
+            }
+        }
+
         var visible = registry.GetByChannel(channelId);
         await Clients.Caller.SendAsync(HubEvents.StreamsReset, visible);
 
@@ -111,18 +139,18 @@ public sealed class StreamHub(
     public async Task RegisterStream(string streamId, string channelId, string channelName,
         string username, int audioSampleRate = 0, int audioChannels = 0)
     {
-        // Use server-verified clientDbId
-        var clientDbId = registry.GetVerifiedClientDbId(Context.ConnectionId) ?? "";
+        // Must be authenticated — always required regardless of group config
+        var clientDbId = registry.GetVerifiedClientDbId(Context.ConnectionId);
+        if (clientDbId == null)
+        {
+            logger.LogWarning("RegisterStream denied: {Username} has no verified identity", username);
+            await Clients.Caller.SendAsync(HubEvents.StreamDenied, "Identity not verified. Reconnect and try again.");
+            return;
+        }
 
         // Check server groups if configured
         if (queryOpts.CurrentValue.StreamingGroupCheckEnabled)
         {
-            if (string.IsNullOrEmpty(clientDbId))
-            {
-                logger.LogWarning("RegisterStream denied: {Username} has no verified identity", username);
-                await Clients.Caller.SendAsync(HubEvents.StreamDenied, "Identity not verified. Reconnect and try again.");
-                return;
-            }
 
             IReadOnlyList<string>? groups;
             try { groups = await ts3Query.GetServerGroupsByDbIdAsync(clientDbId); }
@@ -183,6 +211,28 @@ public sealed class StreamHub(
     // ── Viewer subscribes to a stream ───────────────────────────────────────
     public async Task WatchStream(string streamId)
     {
+        if (string.IsNullOrEmpty(streamId)) return;
+
+        // Must be authenticated
+        if (registry.GetVerifiedClientDbId(Context.ConnectionId) == null)
+        {
+            await Clients.Caller.SendAsync(HubEvents.AuthFailed, "Not authenticated.");
+            return;
+        }
+
+        // Stream must exist
+        if (!registry.TryGet(streamId, out var streamEntry) || streamEntry is null)
+            return;
+
+        // Viewer must be in the same channel as the stream
+        var viewerChannel = registry.GetClientChannel(Context.ConnectionId);
+        if (viewerChannel != streamEntry.Info.ChannelId)
+        {
+            logger.LogWarning("WatchStream denied: viewer {ConnId} in channel {ViewerChannel} tried to watch stream in channel {StreamChannel}",
+                Context.ConnectionId[..8], viewerChannel, streamEntry.Info.ChannelId);
+            return;
+        }
+
         await Groups.AddToGroupAsync(Context.ConnectionId, $"stream-{streamId}");
         logger.LogInformation("Viewer {ConnId} watching {StreamId}", Context.ConnectionId[..8], streamId);
     }
@@ -196,6 +246,8 @@ public sealed class StreamHub(
     // ── Streamer sends a video frame (relayed to all viewers) ───────────────
     public async Task SendVideoFrame(string streamId, byte[] frame)
     {
+        if (string.IsNullOrEmpty(streamId) || frame is null)
+            return;
         if (!registry.TryGet(streamId, out var entry) || entry?.StreamerConnectionId != Context.ConnectionId)
             return;
         await Clients.Group($"stream-{streamId}").SendAsync(HubEvents.ReceiveVideoFrame, streamId, frame);
@@ -204,6 +256,8 @@ public sealed class StreamHub(
     // ── Streamer sends an audio frame (relayed to all viewers) ──────────────
     public async Task SendAudioFrame(string streamId, byte[] frame)
     {
+        if (string.IsNullOrEmpty(streamId) || frame is null)
+            return;
         if (!registry.TryGet(streamId, out var entry) || entry?.StreamerConnectionId != Context.ConnectionId)
             return;
         await Clients.Group($"stream-{streamId}").SendAsync(HubEvents.ReceiveAudioFrame, streamId, frame);

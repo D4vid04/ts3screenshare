@@ -66,6 +66,7 @@ namespace TS3ScreenShare
             _relay.StreamDenied += OnStreamDenied;
             _relay.ConnectionDenied += OnConnectionDenied;
             _relay.Disconnected += OnRelayDisconnected;
+            _relay.ForceDisconnected += OnRelayForceDisconnected;
             _relay.AuthChallengeReceived += OnAuthChallenge;
 
             _ts3.ChannelChanged += OnTs3ChannelChanged;
@@ -182,7 +183,8 @@ namespace TS3ScreenShare
                 // OnAuthChallenge handler sets away message and sends ConfirmAuth
                 await _relay.RequestAuthAsync();
 
-                await _relay.JoinChannelAsync(_ts3.MyChannelId ?? "0");
+                var myChannelId = _ts3.MyChannelId ?? "0";
+                await _relay.JoinChannelAsync(myChannelId, GetCurrentChannelName(myChannelId));
                 DotRelay.Fill = (Brush)FindResource("GreenBrush");
                 ValRelay.Text = "Connected";
                 BtnStartStream.IsEnabled = true;
@@ -299,9 +301,10 @@ namespace TS3ScreenShare
         private void OnAudioCaptured(byte[] pcmData)
         {
             if (!_streaming || _currentStreamId == null) return;
+            var streamId = _currentStreamId;
             _ = Task.Run(async () =>
             {
-                try { await _relay.SendAudioFrameAsync(_currentStreamId!, pcmData); }
+                try { await _relay.SendAudioFrameAsync(streamId, pcmData); }
                 catch { }
             });
         }
@@ -313,12 +316,13 @@ namespace TS3ScreenShare
             if (!_streaming || _currentStreamId == null) return;
             if (Interlocked.CompareExchange(ref _sendingFrame, 1, 0) != 0) return; // skip frame if previous send is still in progress
 
+            var streamId = _currentStreamId;
             _ = Task.Run(async () =>
             {
                 try
                 {
                     var jpeg = BgrToJpeg(bgrBytes, width, height);
-                    await _relay.SendVideoFrameAsync(_currentStreamId!, jpeg);
+                    await _relay.SendVideoFrameAsync(streamId, jpeg);
                 }
                 finally
                 {
@@ -540,6 +544,21 @@ namespace TS3ScreenShare
                 BtnStartStream.IsEnabled = false;
             });
 
+        private void OnRelayForceDisconnected()
+            => Dispatcher.Invoke(async () =>
+            {
+                try { if (_streaming) await StopStreamAsync(); } catch { }
+                try { if (_viewing) await StopViewingAsync(); } catch { }
+                try { await _relay.DisconnectAsync(); } catch { }
+                DotRelay.Fill = (Brush)FindResource("RedBrush");
+                ValRelay.Text = "Disconnected";
+                BtnStartStream.IsEnabled = false;
+                BtnConnect.Content = "Connect";
+                MessageBox.Show(
+                    "You have been disconnected from the relay server because you left the TeamSpeak server.",
+                    "Disconnected", MessageBoxButton.OK, MessageBoxImage.Warning);
+            });
+
         private void OnStreamsReset(IReadOnlyList<StreamInfo> streams)
             => Dispatcher.Invoke(() =>
             {
@@ -593,9 +612,10 @@ namespace TS3ScreenShare
         private void OnTs3ChannelChanged(string oldId, string newId)
         {
             if (!_relay.IsConnected) return;
+            var channelName = GetCurrentChannelName(newId);
             _ = Task.Run(async () =>
             {
-                try { await _relay.JoinChannelAsync(newId); }
+                try { await _relay.JoinChannelAsync(newId, channelName); }
                 catch { }
             });
         }
