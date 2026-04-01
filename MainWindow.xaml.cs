@@ -64,6 +64,8 @@ namespace TS3ScreenShare
             PwdApiKey.Password = apiKey;
             TxtApiKey.Text = apiKey;
             if (!string.IsNullOrEmpty(saved.RelayUrl)) TxtRelayUrl.Text = saved.RelayUrl;
+            SliderVolume.Value = saved.NotificationVolume;
+            TxtVolume.Text = $"{saved.NotificationVolume}%";
 
             _ts3.RosterUpdated += OnRosterUpdated;
             _ts3.Disconnected += OnTs3Disconnected;
@@ -95,6 +97,15 @@ namespace TS3ScreenShare
             TxtApiKey.Visibility == Visibility.Visible
                 ? TxtApiKey.Text.Trim()
                 : PwdApiKey.Password.Trim();
+
+        private void SliderVolume_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+        {
+            var volume = (int)SliderVolume.Value;
+            TxtVolume.Text = $"{volume}%";
+            var saved = _settings.Load();
+            saved.NotificationVolume = volume;
+            _settings.Save(saved);
+        }
 
         private void BtnToggleApiKey_Click(object sender, RoutedEventArgs e)
             => TogglePasswordVisibility(PwdApiKey, TxtApiKey, BtnToggleApiKey);
@@ -583,10 +594,10 @@ namespace TS3ScreenShare
                 _activeStreams.Add(info);
                 UpdateMainArea();
 
-                // Play sound for viewers when a stream starts in their channel
+                // Play sound when any stream is added (channel check disabled for testing)
                 var settings = _settings.Load();
-                if (info.ChannelId == _ts3.MyChannelId && settings.NotificationSound)
-                    PlayNotificationSound();
+                if (settings.NotificationSound)
+                    PlayNotificationSound(settings.NotificationVolume);
             });
 
         private void OnStreamRemoved(string streamId)
@@ -815,17 +826,19 @@ namespace TS3ScreenShare
 
         // ── Stream notifications ──────────────────────────────────────────────
 
-        private static void PlayNotificationSound()
+        private static void PlayNotificationSound(int volumePercent = 80)
         {
-            var soundPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Assets", "notification.wav");
+            var soundPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Assets", "notification.mp3");
             if (!File.Exists(soundPath)) return;
 
+            var volume = Math.Clamp(volumePercent / 100f, 0f, 1f);
             _ = Task.Run(() =>
             {
                 try
                 {
-                    using var reader = new NAudio.Wave.AudioFileReader(soundPath);
+                    using var reader = new NAudio.Wave.MediaFoundationReader(soundPath);
                     using var output = new NAudio.Wave.WaveOutEvent();
+                    output.Volume = volume;
                     output.Init(reader);
                     output.Play();
                     while (output.PlaybackState == NAudio.Wave.PlaybackState.Playing)

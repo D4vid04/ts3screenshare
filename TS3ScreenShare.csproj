@@ -39,7 +39,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <!-- Copy all Assets (logo.ico, notification.wav, ...) to output directory -->
+    <!-- Copy all Assets (logo.ico, notification.mp3, ...) to output directory -->
     <Content Include="Assets\**">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </Content>
