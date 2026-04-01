@@ -91,7 +91,10 @@ namespace TS3ScreenShare
 
             // Pre-fill relay URL if launched by the plugin with --relay arg
             if (!string.IsNullOrEmpty(App.StartupRelayUrl))
+            {
                 TxtRelayUrl.Text = App.StartupRelayUrl;
+                Loaded += (_, _) => _ = AutoConnectAsync();
+            }
 
             _ = CheckForUpdateAsync();
             InitializeTrayIcon();
@@ -162,6 +165,50 @@ private void BtnToggleApiKey_Click(object sender, RoutedEventArgs e)
             => Hide();
 
         // ── Connection ────────────────────────────────────────────────────────
+
+        private async Task AutoConnectAsync()
+        {
+            // Retry up to 5 times with increasing delays — TS3 ClientQuery may not be ready yet
+            for (int attempt = 0; attempt < 5; attempt++)
+            {
+                await Task.Delay(1500 + attempt * 1000);
+                if (_ts3.IsConnected) return;
+                try
+                {
+                    var apiKey = ApiKeyValue;
+                    await _ts3.ConnectAsync(string.IsNullOrEmpty(apiKey) ? null : apiKey);
+                    await _ts3.InitializeAsync();
+                }
+                catch { continue; }
+
+                // TS3 connected — update UI and connect relay
+                DotTS3.Fill = (Brush)FindResource("GreenBrush");
+                ValTS3.Text = _ts3.MyUsername ?? "Connected";
+                BtnConnect.IsEnabled = false;
+                BtnConnect.Content = "Connecting...";
+                try
+                {
+                    var relayUrl = TxtRelayUrl?.Text?.Trim();
+                    if (string.IsNullOrEmpty(relayUrl)) relayUrl = DefaultRelayUrl;
+                    await _relay.ConnectAsync(relayUrl);
+                    await _relay.RequestAuthAsync();
+                    var myChannelId = _ts3.MyChannelId ?? "0";
+                    await _relay.JoinChannelAsync(myChannelId, GetCurrentChannelName(myChannelId));
+                    DotRelay.Fill = (Brush)FindResource("GreenBrush");
+                    ValRelay.Text = "Connected";
+                    BtnStartStream.IsEnabled = true;
+                }
+                catch { /* relay unavailable — user can retry manually */ }
+                _settings.Save(new Models.AppSettings
+                {
+                    ApiKey = ApiKeyValue,
+                    RelayUrl = TxtRelayUrl?.Text?.Trim() ?? DefaultRelayUrl
+                });
+                BtnConnect.Content = "Disconnect";
+                BtnConnect.IsEnabled = true;
+                return;
+            }
+        }
 
         private async void BtnConnect_Click(object sender, RoutedEventArgs e)
         {
@@ -306,8 +353,8 @@ private void BtnToggleApiKey_Click(object sender, RoutedEventArgs e)
 
             _streaming = true;
             BtnStartStream.Content = "■  Stop stream";
-            StreamStatusText.Text = $"  Streaming  [{_currentStreamId}]";
             BtnStartStream.IsEnabled = true;
+            StreamStatusText.Text = $"  Streaming  [{_currentStreamId}]";
         }
 
         private async Task StopStreamAsync()
@@ -322,8 +369,8 @@ private void BtnToggleApiKey_Click(object sender, RoutedEventArgs e)
             _streaming = false;
             _currentStreamId = null;
             BtnStartStream.Content = "▶  Start stream";
-            StreamStatusText.Text = "";
             BtnStartStream.IsEnabled = true;
+            StreamStatusText.Text = "";
         }
 
         // ── Audio capture → PCM → Relay ──────────────────────────────────────
@@ -463,14 +510,21 @@ private void BtnToggleApiKey_Click(object sender, RoutedEventArgs e)
 
         private void OnTs3Disconnected()
         {
-            Dispatcher.Invoke(() =>
+            Dispatcher.InvokeAsync(async () =>
             {
+                try { if (_streaming) await StopStreamAsync(); } catch { }
+                try { if (_viewing) await StopViewingAsync(); } catch { }
+                try { await _relay.DisconnectAsync(); } catch { }
+
                 DotTS3.Fill = (Brush)FindResource("DimBrush");
                 ValTS3.Text = "Disconnected";
+                DotRelay.Fill = (Brush)FindResource("DimBrush");
+                ValRelay.Text = "Disconnected";
                 BtnConnect.Content = "Connect";
                 BtnConnect.IsEnabled = true;
                 BtnStartStream.IsEnabled = false;
                 _sidebarItems.Clear();
+                _activeStreams.Clear();
             });
         }
 
@@ -589,8 +643,21 @@ private void BtnToggleApiKey_Click(object sender, RoutedEventArgs e)
                 _activeStreams.Add(info);
                 UpdateMainArea();
 
-                // TODO: play notification sound when stream starts in user's channel
+                // Notify only when the streamer is in the same TS3 channel as us, and we are not the streamer
+                if (_ts3.IsConnected && info.ChannelId == _ts3.MyChannelId
+                    && info.StreamerUsername != _ts3.MyUsername)
+                    _ = Task.Run(SignalPluginNotification);
             });
+
+        private static void SignalPluginNotification()
+        {
+            try
+            {
+                using var evt = EventWaitHandle.OpenExisting("Local\\TS3ScreenShare_Notify");
+                evt.Set();
+            }
+            catch { /* plugin not loaded or TS3 not running */ }
+        }
 
         private void OnStreamRemoved(string streamId)
             => Dispatcher.InvokeAsync(async () =>
@@ -827,6 +894,25 @@ private void BtnToggleApiKey_Click(object sender, RoutedEventArgs e)
                 if (!string.IsNullOrEmpty(url))
                     TxtRelayUrl.Text = url;
                 ShowFromTray();
+                if (!_ts3.IsConnected)
+                    _ = AutoConnectAsync();
+                return;
+            }
+
+            // START_STREAM — open capture dialog and start streaming
+            if (command.Equals("START_STREAM", StringComparison.OrdinalIgnoreCase))
+            {
+                ShowFromTray();
+                if (!_streaming)
+                    BtnStartStream_Click(this, null!);
+                return;
+            }
+
+            // STOP_STREAM — stop current stream
+            if (command.Equals("STOP_STREAM", StringComparison.OrdinalIgnoreCase))
+            {
+                if (_streaming)
+                    BtnStartStream_Click(this, null!);
                 return;
             }
 
