@@ -106,6 +106,36 @@ public sealed class StreamRegistry
     public bool IsStreamer(string connectionId)
         => _streamerConnections.ContainsKey(connectionId);
 
+    // ── Viewer tracking ──────────────────────────────────────────────────────
+
+    public void AddViewer(string streamId, string connectionId)
+    {
+        if (_streams.TryGetValue(streamId, out var entry))
+            entry.ViewerConnections.TryAdd(connectionId, connectionId);
+    }
+
+    public void RemoveViewer(string streamId, string connectionId)
+    {
+        if (_streams.TryGetValue(streamId, out var entry))
+            entry.ViewerConnections.TryRemove(connectionId, out _);
+    }
+
+    /// <summary>Returns all viewer connectionIds for a stream and clears the list.</summary>
+    public IReadOnlyList<string> DrainViewers(string streamId)
+    {
+        if (!_streams.TryGetValue(streamId, out var entry)) return [];
+        var viewers = entry.ViewerConnections.Keys.ToList();
+        entry.ViewerConnections.Clear();
+        return viewers;
+    }
+
+    /// <summary>Removes a connection from all stream viewer lists (on disconnect).</summary>
+    public void RemoveViewerFromAllStreams(string connectionId)
+    {
+        foreach (var entry in _streams.Values)
+            entry.ViewerConnections.TryRemove(connectionId, out _);
+    }
+
     /// <summary>
     /// Returns true if another connection (not the caller's own) is already authenticated
     /// with the same clientDbId — used to enforce one-session-per-user.
