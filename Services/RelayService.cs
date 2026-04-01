@@ -24,6 +24,8 @@ namespace TS3ScreenShare.Services
         public event Action<string>? ConnectionDenied;
         public event Action? Disconnected;
         public event Action? ForceDisconnected;
+        public event Action? Reconnected;
+        public event Action? Reconnecting;
         // Auth events
         public event Action<string>? AuthChallengeReceived;
         public event Action<string>? AuthSucceeded;
@@ -57,9 +59,11 @@ namespace TS3ScreenShare.Services
                 AuthFailed?.Invoke(reason);
                 _authTcs?.TrySetException(new Exception(reason));
             });
-            _hub.On("ForceDisconnect", () => ForceDisconnected?.Invoke());
+            _hub.On(HubEvents.ForceDisconnect, () => ForceDisconnected?.Invoke());
 
             _hub.Closed += _ => { Disconnected?.Invoke(); return Task.CompletedTask; };
+            _hub.Reconnecting += _ => { Reconnecting?.Invoke(); return Task.CompletedTask; };
+            _hub.Reconnected += _ => { Reconnected?.Invoke(); return Task.CompletedTask; };
 
             _cts = new CancellationTokenSource();
             await _hub.StartAsync(_cts.Token);

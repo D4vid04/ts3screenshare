@@ -48,9 +48,15 @@ namespace TS3ScreenShare
             StreamList.ItemsSource = _activeStreams;
 
             var saved = _settings.Load();
-            var apiKey = !string.IsNullOrEmpty(saved.ApiKey)
-                ? saved.ApiKey
-                : TryReadTs3ApiKey() ?? "";
+            var ts3ApiKey = TryReadTs3ApiKey();
+            var apiKey = saved.ApiKey;
+
+            if (!string.IsNullOrEmpty(ts3ApiKey) && ts3ApiKey != saved.ApiKey)
+            {
+                apiKey = ts3ApiKey;
+                _settings.Save(new AppSettings { ApiKey = apiKey, RelayUrl = saved.RelayUrl });
+            }
+
             PwdApiKey.Password = apiKey;
             TxtApiKey.Text = apiKey;
             if (!string.IsNullOrEmpty(saved.RelayUrl)) TxtRelayUrl.Text = saved.RelayUrl;
@@ -68,6 +74,8 @@ namespace TS3ScreenShare
             _relay.Disconnected += OnRelayDisconnected;
             _relay.ForceDisconnected += OnRelayForceDisconnected;
             _relay.AuthChallengeReceived += OnAuthChallenge;
+            _relay.Reconnecting += OnRelayReconnecting;
+            _relay.Reconnected += OnRelayReconnected;
 
             _ts3.ChannelChanged += OnTs3ChannelChanged;
 
@@ -543,6 +551,81 @@ namespace TS3ScreenShare
                 ValRelay.Text = "Disconnected";
                 BtnStartStream.IsEnabled = false;
             });
+
+        private void OnRelayReconnecting()
+            => Dispatcher.Invoke(() =>
+            {
+                DotRelay.Fill = (Brush)FindResource("DimBrush");
+                ValRelay.Text = "Reconnecting...";
+            });
+
+        private void OnRelayReconnected()
+        {
+            // SignalR reconnect restores the transport but all server-side state is gone.
+            // Re-run auth + JoinChannel, then restore any active stream or viewer session.
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await _relay.RequestAuthAsync();
+                    var channelId = _ts3.MyChannelId ?? "0";
+                    var channelName = Dispatcher.Invoke(() => GetCurrentChannelName(channelId));
+                    await _relay.JoinChannelAsync(channelId, channelName);
+
+                    // Re-register stream if one was active before the disconnect
+                    if (_streaming && _currentStreamId != null)
+                    {
+                        var username = _ts3.MyUsername ?? "unknown";
+                        await _relay.RegisterStreamAsync(_currentStreamId, channelId, channelName,
+                            username, _audioCapture.SampleRate, _audioCapture.Channels);
+                    }
+
+                    // Re-subscribe to stream if viewer was active before the disconnect
+                    if (_viewing && _viewingStreamId != null)
+                        await _relay.WatchStreamAsync(_viewingStreamId);
+
+                    Dispatcher.Invoke(() =>
+                    {
+                        DotRelay.Fill = (Brush)FindResource("GreenBrush");
+                        ValRelay.Text = "Connected";
+                        BtnStartStream.IsEnabled = true;
+                    });
+                }
+                catch
+                {
+                    // Reconnect failed — reset local stream/viewer state so the UI
+                    // doesn't show an active session the server no longer knows about.
+                    Dispatcher.Invoke(() =>
+                    {
+                        if (_streaming)
+                        {
+                            _capture.Stop();
+                            _audioCapture.Stop();
+                            _streaming = false;
+                            _currentStreamId = null;
+                            BtnStartStream.Content = "▶  Start stream";
+                            StreamStatusText.Text = "";
+                        }
+
+                        if (_viewing)
+                        {
+                            _viewing = false;
+                            _viewingStreamId = null;
+                            VideoDisplay.Visibility = Visibility.Collapsed;
+                            VideoDisplay.Source = null;
+                            _audioPlayback.Stop();
+                            BtnMute.Visibility = Visibility.Collapsed;
+                            BtnMute.Content = "🔊";
+                            UpdateMainArea();
+                        }
+
+                        DotRelay.Fill = (Brush)FindResource("RedBrush");
+                        ValRelay.Text = "Error";
+                        BtnStartStream.IsEnabled = false;
+                    });
+                }
+            });
+        }
 
         private void OnRelayForceDisconnected()
             => Dispatcher.Invoke(async () =>

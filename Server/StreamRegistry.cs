@@ -106,6 +106,13 @@ public sealed class StreamRegistry
     public bool IsStreamer(string connectionId)
         => _streamerConnections.ContainsKey(connectionId);
 
+    /// <summary>
+    /// Returns true if another connection (not the caller's own) is already authenticated
+    /// with the same clientDbId — used to enforce one-session-per-user.
+    /// </summary>
+    public bool IsClientAlreadyConnected(string connectionId, string clientDbId)
+        => _verifiedClients.Any(kv => kv.Key != connectionId && kv.Value == clientDbId);
+
     public IReadOnlyList<(string ConnectionId, string ClientDbId)> GetVerifiedClients()
         => _verifiedClients.Select(kv => (kv.Key, kv.Value)).ToList();
 }

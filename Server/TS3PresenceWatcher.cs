@@ -50,7 +50,7 @@ public sealed class TS3PresenceWatcher(
                 await hubContext.Clients.Client(connectionId)
                     .SendAsync(HubEvents.AuthFailed, "You have disconnected from the TeamSpeak server.", stoppingToken);
                 await hubContext.Clients.Client(connectionId)
-                    .SendAsync("ForceDisconnect", stoppingToken);
+                    .SendAsync(HubEvents.ForceDisconnect, stoppingToken);
 
                 // Server-side cleanup — stop any active stream and remove from registry
                 if (registry.TryRemoveByConnection(connectionId, out var streamInfo) && streamInfo != null)

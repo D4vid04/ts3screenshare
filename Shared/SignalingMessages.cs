@@ -42,4 +42,6 @@ public static class HubEvents
     public const string AuthChallenge     = nameof(AuthChallenge);
     public const string AuthSuccess       = nameof(AuthSuccess);
     public const string AuthFailed        = nameof(AuthFailed);
+    // Server-initiated disconnect (e.g. left TS3 server)
+    public const string ForceDisconnect   = nameof(ForceDisconnect);
 }

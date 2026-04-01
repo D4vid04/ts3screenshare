@@ -75,6 +75,15 @@ public sealed class StreamHub(
             return;
         }
 
+        // Enforce one active connection per TS3 identity
+        if (registry.IsClientAlreadyConnected(Context.ConnectionId, clientDbId))
+        {
+            logger.LogWarning("JoinChannel denied: cldbid={Cldbid} is already connected from another session", clientDbId);
+            await Clients.Caller.SendAsync(HubEvents.ConnectionDenied, "You are already connected from another instance.");
+            Context.Abort();
+            return;
+        }
+
         // Check server groups if allow or block lists are configured
         var opts = queryOpts.CurrentValue;
         if (opts.ConnectionAllowCheckEnabled || opts.ConnectionBlockEnabled)
