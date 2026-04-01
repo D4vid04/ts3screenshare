@@ -64,8 +64,6 @@ namespace TS3ScreenShare
             PwdApiKey.Password = apiKey;
             TxtApiKey.Text = apiKey;
             if (!string.IsNullOrEmpty(saved.RelayUrl)) TxtRelayUrl.Text = saved.RelayUrl;
-            SliderVolume.Value = saved.NotificationVolume;
-            TxtVolume.Text = $"{saved.NotificationVolume}%";
 
             _ts3.RosterUpdated += OnRosterUpdated;
             _ts3.Disconnected += OnTs3Disconnected;
@@ -98,17 +96,7 @@ namespace TS3ScreenShare
                 ? TxtApiKey.Text.Trim()
                 : PwdApiKey.Password.Trim();
 
-        private void SliderVolume_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
-        {
-            if (TxtVolume == null) return; // fired during XAML init before controls are ready
-            var volume = (int)SliderVolume.Value;
-            TxtVolume.Text = $"{volume}%";
-            var saved = _settings.Load();
-            saved.NotificationVolume = volume;
-            _settings.Save(saved);
-        }
-
-        private void BtnToggleApiKey_Click(object sender, RoutedEventArgs e)
+private void BtnToggleApiKey_Click(object sender, RoutedEventArgs e)
             => TogglePasswordVisibility(PwdApiKey, TxtApiKey, BtnToggleApiKey);
 
         private static void TogglePasswordVisibility(
@@ -598,7 +586,7 @@ namespace TS3ScreenShare
                 // Play sound when any stream is added (channel check disabled for testing)
                 var settings = _settings.Load();
                 if (settings.NotificationSound)
-                    PlayNotificationSound(settings.NotificationVolume);
+                    PlayNotificationSound();
             });
 
         private void OnStreamRemoved(string streamId)
@@ -827,19 +815,17 @@ namespace TS3ScreenShare
 
         // ── Stream notifications ──────────────────────────────────────────────
 
-        private static void PlayNotificationSound(int volumePercent = 80)
+        private static void PlayNotificationSound()
         {
             var soundPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Assets", "notification.mp3");
             if (!File.Exists(soundPath)) return;
 
-            var volume = Math.Clamp(volumePercent / 100f, 0f, 1f);
             _ = Task.Run(() =>
             {
                 try
                 {
                     using var reader = new NAudio.Wave.MediaFoundationReader(soundPath);
                     using var output = new NAudio.Wave.WaveOutEvent();
-                    output.Volume = volume;
                     output.Init(reader);
                     output.Play();
                     while (output.PlaybackState == NAudio.Wave.PlaybackState.Playing)

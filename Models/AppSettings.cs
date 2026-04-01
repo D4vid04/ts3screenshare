@@ -6,5 +6,4 @@ public sealed class AppSettings
     public string RelayUrl { get; set; } = "wss://0.0.0.0:5000";
     public bool NotificationSound { get; set; } = true;
     public bool NotificationChat { get; set; } = true;
-    public int NotificationVolume { get; set; } = 80;
 }
