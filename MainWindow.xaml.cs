@@ -87,6 +87,12 @@ namespace TS3ScreenShare
             _capture.CaptureFailed += OnCaptureFailed;
             _audioCapture.DataAvailable += OnAudioCaptured;
 
+            App.PipeCommandReceived += OnPipeCommand;
+
+            // Pre-fill relay URL if launched by the plugin with --relay arg
+            if (!string.IsNullOrEmpty(App.StartupRelayUrl))
+                TxtRelayUrl.Text = App.StartupRelayUrl;
+
             _ = CheckForUpdateAsync();
             InitializeTrayIcon();
         }
@@ -808,6 +814,74 @@ private void BtnToggleApiKey_Click(object sender, RoutedEventArgs e)
         {
             _exitRequested = true;
             Application.Current.Shutdown();
+        }
+
+        // ── Plugin pipe commands ──────────────────────────────────────────────
+
+        private void OnPipeCommand(string command)
+        {
+            // RELAY:<url> — pre-fill relay URL
+            if (command.StartsWith("RELAY:", StringComparison.OrdinalIgnoreCase))
+            {
+                var url = command["RELAY:".Length..].Trim();
+                if (!string.IsNullOrEmpty(url))
+                    TxtRelayUrl.Text = url;
+                ShowFromTray();
+                return;
+            }
+
+            // WATCH_USER:<nickname> — find stream by username and start watching
+            if (command.StartsWith("WATCH_USER:", StringComparison.OrdinalIgnoreCase))
+            {
+                var username = command["WATCH_USER:".Length..].Trim();
+                ShowFromTray();
+                _ = WatchStreamByUsernameAsync(username);
+                return;
+            }
+
+            // FOCUS — bring window to front
+            if (command.Equals("FOCUS", StringComparison.OrdinalIgnoreCase))
+            {
+                ShowFromTray();
+                return;
+            }
+        }
+
+        private async Task WatchStreamByUsernameAsync(string username)
+        {
+            var stream = _activeStreams.FirstOrDefault(s =>
+                s.StreamerUsername.Equals(username, StringComparison.OrdinalIgnoreCase));
+
+            if (stream == null)
+            {
+                MessageBox.Show($"No active stream found for user \"{username}\".",
+                    "TS3ScreenShare", MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+
+            try
+            {
+                if (_viewing) await StopViewingAsync();
+                _viewingStreamId = stream.StreamId;
+                await _relay.WatchStreamAsync(stream.StreamId);
+                _viewing = true;
+
+                if (stream.AudioSampleRate > 0)
+                {
+                    _audioPlayback.Initialize(stream.AudioSampleRate, stream.AudioChannels);
+                    BtnMute.Visibility = Visibility.Visible;
+                }
+
+                StreamStatusText.Text = $"  Watching  [{stream.StreamId}]";
+                BtnStartStream.Content = "■  Stop";
+                BtnStartStream.IsEnabled = true;
+                UpdateMainArea();
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Failed to connect to stream:\n\n{ex.Message}",
+                    "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
         }
 
         // ── Stream notifications ──────────────────────────────────────────────
