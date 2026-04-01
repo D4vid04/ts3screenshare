@@ -583,10 +583,7 @@ private void BtnToggleApiKey_Click(object sender, RoutedEventArgs e)
                 _activeStreams.Add(info);
                 UpdateMainArea();
 
-                // Play sound when any stream is added (channel check disabled for testing)
-                var settings = _settings.Load();
-                if (settings.NotificationSound)
-                    PlayNotificationSound();
+                // TODO: play notification sound when stream starts in user's channel
             });
 
         private void OnStreamRemoved(string streamId)
