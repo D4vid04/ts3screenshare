@@ -362,6 +362,12 @@ namespace TS3ScreenShare.Services
         private static string DecodeTS3String(string s)
             => s.Replace("\\s", " ").Replace("\\p", "|").Replace("\\n", "\n").Replace("\\\\", "\\");
 
+        public async Task SendChannelMessageAsync(string message)
+        {
+            if (string.IsNullOrEmpty(MyChannelId)) return;
+            await SendAsync($"sendtextmessage targetmode=2 target={MyChannelId} msg={EncodeTs3String(message)}");
+        }
+
         public async Task SetAwayMessageAsync(string? token)
         {
             if (token != null)

@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.ComponentModel;
 using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
@@ -30,6 +31,8 @@ namespace TS3ScreenShare
         private readonly AudioPlaybackService _audioPlayback = new();
         private readonly SettingsService _settings = new();
         private readonly UpdateCheckService _updateChecker = new();
+        private System.Windows.Forms.NotifyIcon? _trayIcon;
+        private bool _exitRequested;
         private readonly ObservableCollection<SidebarItem> _sidebarItems = new();
         private readonly ObservableCollection<StreamInfo> _activeStreams = new();
 
@@ -85,6 +88,7 @@ namespace TS3ScreenShare
             _audioCapture.DataAvailable += OnAudioCaptured;
 
             _ = CheckForUpdateAsync();
+            InitializeTrayIcon();
         }
 
         private string ApiKeyValue =>
@@ -149,7 +153,7 @@ namespace TS3ScreenShare
                 : WindowState.Maximized;
 
         private void BtnClose_Click(object sender, RoutedEventArgs e)
-            => Application.Current.Shutdown();
+            => Hide();
 
         // ── Connection ────────────────────────────────────────────────────────
 
@@ -283,6 +287,14 @@ namespace TS3ScreenShare
             _audioCapture.Start();
             await _relay.RegisterStreamAsync(_currentStreamId, channelId, channelName, username,
                 _audioCapture.SampleRate, _audioCapture.Channels);
+
+            // Chat notification — sent only by the streamer, once
+            var settings = _settings.Load();
+            if (settings.NotificationChat && _ts3.IsConnected)
+            {
+                try { await _ts3.SendChannelMessageAsync($"[TS3SS] {username} started streaming"); }
+                catch { }
+            }
 
             _capture.Start(15, source);
 
@@ -566,7 +578,16 @@ namespace TS3ScreenShare
         // ── Relay eventy ─────────────────────────────────────────────────────
 
         private void OnStreamAdded(StreamInfo info)
-            => Dispatcher.Invoke(() => { _activeStreams.Add(info); UpdateMainArea(); });
+            => Dispatcher.Invoke(() =>
+            {
+                _activeStreams.Add(info);
+                UpdateMainArea();
+
+                // Play sound for viewers when a stream starts in their channel
+                var settings = _settings.Load();
+                if (info.ChannelId == _ts3.MyChannelId && settings.NotificationSound)
+                    PlayNotificationSound();
+            });
 
         private void OnStreamRemoved(string streamId)
             => Dispatcher.InvokeAsync(async () =>
@@ -736,6 +757,80 @@ namespace TS3ScreenShare
             _ = Task.Run(async () =>
             {
                 try { await _relay.JoinChannelAsync(newId, channelName); }
+                catch { }
+            });
+        }
+
+        // ── System tray ──────────────────────────────────────────────────────
+
+        private void InitializeTrayIcon()
+        {
+            var iconPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Assets", "logo.ico");
+            var icon = File.Exists(iconPath)
+                ? new System.Drawing.Icon(iconPath)
+                : System.Drawing.SystemIcons.Application;
+
+            var menu = new System.Windows.Forms.ContextMenuStrip();
+            menu.Items.Add("Open TS3ScreenShare", null, (_, _) => ShowFromTray());
+            menu.Items.Add(new System.Windows.Forms.ToolStripSeparator());
+            menu.Items.Add("Exit", null, (_, _) => ExitApp());
+
+            _trayIcon = new System.Windows.Forms.NotifyIcon
+            {
+                Icon = icon,
+                Text = "TS3ScreenShare",
+                Visible = true,
+                ContextMenuStrip = menu
+            };
+            _trayIcon.DoubleClick += (_, _) => ShowFromTray();
+        }
+
+        protected override void OnClosing(CancelEventArgs e)
+        {
+            if (!_exitRequested)
+            {
+                e.Cancel = true;
+                Hide();
+                _trayIcon?.ShowBalloonTip(2000, "TS3ScreenShare",
+                    "Running in background. Double-click tray icon to open.",
+                    System.Windows.Forms.ToolTipIcon.Info);
+                return;
+            }
+            _trayIcon?.Dispose();
+            base.OnClosing(e);
+        }
+
+        private void ShowFromTray()
+        {
+            Show();
+            WindowState = WindowState.Normal;
+            Activate();
+        }
+
+        private void ExitApp()
+        {
+            _exitRequested = true;
+            Application.Current.Shutdown();
+        }
+
+        // ── Stream notifications ──────────────────────────────────────────────
+
+        private static void PlayNotificationSound()
+        {
+            var soundPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Assets", "notification.wav");
+            if (!File.Exists(soundPath)) return;
+
+            _ = Task.Run(() =>
+            {
+                try
+                {
+                    using var reader = new NAudio.Wave.AudioFileReader(soundPath);
+                    using var output = new NAudio.Wave.WaveOutEvent();
+                    output.Init(reader);
+                    output.Play();
+                    while (output.PlaybackState == NAudio.Wave.PlaybackState.Playing)
+                        Thread.Sleep(50);
+                }
                 catch { }
             });
         }
