@@ -368,6 +368,7 @@ namespace TS3ScreenShare.Services
             await SendAsync($"sendtextmessage targetmode=2 target={MyChannelId} msg={EncodeTs3String(message)}");
         }
 
+
         public async Task SetAwayMessageAsync(string? token)
         {
             if (token != null)

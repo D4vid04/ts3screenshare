@@ -87,6 +87,15 @@ namespace TS3ScreenShare
             _capture.CaptureFailed += OnCaptureFailed;
             _audioCapture.DataAvailable += OnAudioCaptured;
 
+            App.PipeCommandReceived += OnPipeCommand;
+
+            // Pre-fill relay URL if launched by the plugin with --relay arg
+            if (!string.IsNullOrEmpty(App.StartupRelayUrl))
+            {
+                TxtRelayUrl.Text = App.StartupRelayUrl;
+                Loaded += (_, _) => _ = AutoConnectAsync();
+            }
+
             _ = CheckForUpdateAsync();
             InitializeTrayIcon();
         }
@@ -96,7 +105,7 @@ namespace TS3ScreenShare
                 ? TxtApiKey.Text.Trim()
                 : PwdApiKey.Password.Trim();
 
-        private void BtnToggleApiKey_Click(object sender, RoutedEventArgs e)
+private void BtnToggleApiKey_Click(object sender, RoutedEventArgs e)
             => TogglePasswordVisibility(PwdApiKey, TxtApiKey, BtnToggleApiKey);
 
         private static void TogglePasswordVisibility(
@@ -156,6 +165,50 @@ namespace TS3ScreenShare
             => Hide();
 
         // ── Connection ────────────────────────────────────────────────────────
+
+        private async Task AutoConnectAsync()
+        {
+            // Retry up to 5 times with increasing delays — TS3 ClientQuery may not be ready yet
+            for (int attempt = 0; attempt < 5; attempt++)
+            {
+                await Task.Delay(1500 + attempt * 1000);
+                if (_ts3.IsConnected) return;
+                try
+                {
+                    var apiKey = ApiKeyValue;
+                    await _ts3.ConnectAsync(string.IsNullOrEmpty(apiKey) ? null : apiKey);
+                    await _ts3.InitializeAsync();
+                }
+                catch { continue; }
+
+                // TS3 connected — update UI and connect relay
+                DotTS3.Fill = (Brush)FindResource("GreenBrush");
+                ValTS3.Text = _ts3.MyUsername ?? "Connected";
+                BtnConnect.IsEnabled = false;
+                BtnConnect.Content = "Connecting...";
+                try
+                {
+                    var relayUrl = TxtRelayUrl?.Text?.Trim();
+                    if (string.IsNullOrEmpty(relayUrl)) relayUrl = DefaultRelayUrl;
+                    await _relay.ConnectAsync(relayUrl);
+                    await _relay.RequestAuthAsync();
+                    var myChannelId = _ts3.MyChannelId ?? "0";
+                    await _relay.JoinChannelAsync(myChannelId, GetCurrentChannelName(myChannelId));
+                    DotRelay.Fill = (Brush)FindResource("GreenBrush");
+                    ValRelay.Text = "Connected";
+                    BtnStartStream.IsEnabled = true;
+                }
+                catch { /* relay unavailable — user can retry manually */ }
+                _settings.Save(new Models.AppSettings
+                {
+                    ApiKey = ApiKeyValue,
+                    RelayUrl = TxtRelayUrl?.Text?.Trim() ?? DefaultRelayUrl
+                });
+                BtnConnect.Content = "Disconnect";
+                BtnConnect.IsEnabled = true;
+                return;
+            }
+        }
 
         private async void BtnConnect_Click(object sender, RoutedEventArgs e)
         {
@@ -300,8 +353,8 @@ namespace TS3ScreenShare
 
             _streaming = true;
             BtnStartStream.Content = "■  Stop stream";
-            StreamStatusText.Text = $"  Streaming  [{_currentStreamId}]";
             BtnStartStream.IsEnabled = true;
+            StreamStatusText.Text = $"  Streaming  [{_currentStreamId}]";
         }
 
         private async Task StopStreamAsync()
@@ -316,8 +369,8 @@ namespace TS3ScreenShare
             _streaming = false;
             _currentStreamId = null;
             BtnStartStream.Content = "▶  Start stream";
-            StreamStatusText.Text = "";
             BtnStartStream.IsEnabled = true;
+            StreamStatusText.Text = "";
         }
 
         // ── Audio capture → PCM → Relay ──────────────────────────────────────
@@ -457,14 +510,21 @@ namespace TS3ScreenShare
 
         private void OnTs3Disconnected()
         {
-            Dispatcher.Invoke(() =>
+            Dispatcher.InvokeAsync(async () =>
             {
+                try { if (_streaming) await StopStreamAsync(); } catch { }
+                try { if (_viewing) await StopViewingAsync(); } catch { }
+                try { await _relay.DisconnectAsync(); } catch { }
+
                 DotTS3.Fill = (Brush)FindResource("DimBrush");
                 ValTS3.Text = "Disconnected";
+                DotRelay.Fill = (Brush)FindResource("DimBrush");
+                ValRelay.Text = "Disconnected";
                 BtnConnect.Content = "Connect";
                 BtnConnect.IsEnabled = true;
                 BtnStartStream.IsEnabled = false;
                 _sidebarItems.Clear();
+                _activeStreams.Clear();
             });
         }
 
@@ -583,11 +643,21 @@ namespace TS3ScreenShare
                 _activeStreams.Add(info);
                 UpdateMainArea();
 
-                // Play sound for viewers when a stream starts in their channel
-                var settings = _settings.Load();
-                if (info.ChannelId == _ts3.MyChannelId && settings.NotificationSound)
-                    PlayNotificationSound();
+                // Notify only when the streamer is in the same TS3 channel as us, and we are not the streamer
+                if (_ts3.IsConnected && info.ChannelId == _ts3.MyChannelId
+                    && info.StreamerUsername != _ts3.MyUsername)
+                    _ = Task.Run(SignalPluginNotification);
             });
+
+        private static void SignalPluginNotification()
+        {
+            try
+            {
+                using var evt = EventWaitHandle.OpenExisting("Local\\TS3ScreenShare_Notify");
+                evt.Set();
+            }
+            catch { /* plugin not loaded or TS3 not running */ }
+        }
 
         private void OnStreamRemoved(string streamId)
             => Dispatcher.InvokeAsync(async () =>
@@ -813,18 +883,105 @@ namespace TS3ScreenShare
             Application.Current.Shutdown();
         }
 
+        // ── Plugin pipe commands ──────────────────────────────────────────────
+
+        private void OnPipeCommand(string command)
+        {
+            // RELAY:<url> — pre-fill relay URL
+            if (command.StartsWith("RELAY:", StringComparison.OrdinalIgnoreCase))
+            {
+                var url = command["RELAY:".Length..].Trim();
+                if (!string.IsNullOrEmpty(url))
+                    TxtRelayUrl.Text = url;
+                ShowFromTray();
+                if (!_ts3.IsConnected)
+                    _ = AutoConnectAsync();
+                return;
+            }
+
+            // START_STREAM — open capture dialog and start streaming
+            if (command.Equals("START_STREAM", StringComparison.OrdinalIgnoreCase))
+            {
+                ShowFromTray();
+                if (!_streaming)
+                    BtnStartStream_Click(this, null!);
+                return;
+            }
+
+            // STOP_STREAM — stop current stream
+            if (command.Equals("STOP_STREAM", StringComparison.OrdinalIgnoreCase))
+            {
+                if (_streaming)
+                    BtnStartStream_Click(this, null!);
+                return;
+            }
+
+            // WATCH_USER:<nickname> — find stream by username and start watching
+            if (command.StartsWith("WATCH_USER:", StringComparison.OrdinalIgnoreCase))
+            {
+                var username = command["WATCH_USER:".Length..].Trim();
+                ShowFromTray();
+                _ = WatchStreamByUsernameAsync(username);
+                return;
+            }
+
+            // FOCUS — bring window to front
+            if (command.Equals("FOCUS", StringComparison.OrdinalIgnoreCase))
+            {
+                ShowFromTray();
+                return;
+            }
+        }
+
+        private async Task WatchStreamByUsernameAsync(string username)
+        {
+            var stream = _activeStreams.FirstOrDefault(s =>
+                s.StreamerUsername.Equals(username, StringComparison.OrdinalIgnoreCase));
+
+            if (stream == null)
+            {
+                MessageBox.Show($"No active stream found for user \"{username}\".",
+                    "TS3ScreenShare", MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+
+            try
+            {
+                if (_viewing) await StopViewingAsync();
+                _viewingStreamId = stream.StreamId;
+                await _relay.WatchStreamAsync(stream.StreamId);
+                _viewing = true;
+
+                if (stream.AudioSampleRate > 0)
+                {
+                    _audioPlayback.Initialize(stream.AudioSampleRate, stream.AudioChannels);
+                    BtnMute.Visibility = Visibility.Visible;
+                }
+
+                StreamStatusText.Text = $"  Watching  [{stream.StreamId}]";
+                BtnStartStream.Content = "■  Stop";
+                BtnStartStream.IsEnabled = true;
+                UpdateMainArea();
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Failed to connect to stream:\n\n{ex.Message}",
+                    "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+
         // ── Stream notifications ──────────────────────────────────────────────
 
         private static void PlayNotificationSound()
         {
-            var soundPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Assets", "notification.wav");
+            var soundPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Assets", "notification.mp3");
             if (!File.Exists(soundPath)) return;
 
             _ = Task.Run(() =>
             {
                 try
                 {
-                    using var reader = new NAudio.Wave.AudioFileReader(soundPath);
+                    using var reader = new NAudio.Wave.MediaFoundationReader(soundPath);
                     using var output = new NAudio.Wave.WaveOutEvent();
                     output.Init(reader);
                     output.Play();
