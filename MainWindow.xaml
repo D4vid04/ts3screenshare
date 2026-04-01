@@ -3,6 +3,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:models="clr-namespace:TS3ScreenShare.Models"
         Title="TS3 Screenshare"
+        Icon="Assets/logo.ico"
         Height="600" Width="900"
         MinHeight="500" MinWidth="750"
         WindowStyle="None"
