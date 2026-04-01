@@ -131,6 +131,18 @@ public sealed class StreamHub(
             if (moved.HasValue)
             {
                 var (oldInfo, newInfo) = moved.Value;
+
+                // Kick all active viewers — they are in a different channel now
+                var viewers = registry.DrainViewers(newInfo.StreamId);
+                foreach (var viewerConnId in viewers)
+                {
+                    await Groups.RemoveFromGroupAsync(viewerConnId, $"stream-{newInfo.StreamId}");
+                    await Clients.Client(viewerConnId).SendAsync(HubEvents.StreamRemoved, newInfo.StreamId);
+                }
+                if (viewers.Count > 0)
+                    logger.LogInformation("Kicked {Count} viewer(s) from stream {StreamId} due to channel move",
+                        viewers.Count, newInfo.StreamId);
+
                 await Clients.Group($"channel-{oldInfo.ChannelId}").SendAsync(HubEvents.StreamRemoved, oldInfo.StreamId);
                 await Clients.Group($"channel-{newInfo.ChannelId}").SendAsync(HubEvents.StreamAdded, newInfo);
                 logger.LogInformation("Stream {StreamId} moved from channel {Old} to {New}", newInfo.StreamId, oldInfo.ChannelId, newInfo.ChannelId);
@@ -243,12 +255,14 @@ public sealed class StreamHub(
         }
 
         await Groups.AddToGroupAsync(Context.ConnectionId, $"stream-{streamId}");
+        registry.AddViewer(streamId, Context.ConnectionId);
         logger.LogInformation("Viewer {ConnId} watching {StreamId}", Context.ConnectionId[..8], streamId);
     }
 
     // ── Viewer unsubscribes from a stream ───────────────────────────────────
     public async Task UnwatchStream(string streamId)
     {
+        registry.RemoveViewer(streamId, Context.ConnectionId);
         await Groups.RemoveFromGroupAsync(Context.ConnectionId, $"stream-{streamId}");
     }
 
@@ -282,6 +296,7 @@ public sealed class StreamHub(
     public override async Task OnDisconnectedAsync(Exception? exception)
     {
         registry.RemoveClient(Context.ConnectionId);
+        registry.RemoveViewerFromAllStreams(Context.ConnectionId);
 
         if (registry.TryRemoveByConnection(Context.ConnectionId, out var info) && info is not null)
         {

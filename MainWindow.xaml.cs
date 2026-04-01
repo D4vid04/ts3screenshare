@@ -569,11 +569,16 @@ namespace TS3ScreenShare
             => Dispatcher.Invoke(() => { _activeStreams.Add(info); UpdateMainArea(); });
 
         private void OnStreamRemoved(string streamId)
-            => Dispatcher.Invoke(() =>
+            => Dispatcher.InvokeAsync(async () =>
             {
                 var item = _activeStreams.FirstOrDefault(s => s.StreamId == streamId);
                 if (item is not null) _activeStreams.Remove(item);
-                UpdateMainArea();
+
+                // If we were actively watching this stream, stop — streamer moved to another channel
+                if (_viewing && _viewingStreamId == streamId)
+                    await StopViewingAsync();
+                else
+                    UpdateMainArea();
             });
 
         private void OnRelayDisconnected()
