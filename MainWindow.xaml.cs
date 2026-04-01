@@ -341,14 +341,6 @@ private void BtnToggleApiKey_Click(object sender, RoutedEventArgs e)
             await _relay.RegisterStreamAsync(_currentStreamId, channelId, channelName, username,
                 _audioCapture.SampleRate, _audioCapture.Channels);
 
-            // Chat notification — sent only by the streamer, once
-            var settings = _settings.Load();
-            if (settings.NotificationChat && _ts3.IsConnected)
-            {
-                try { await _ts3.SendChannelMessageAsync($"[TS3SS] {username} started streaming"); }
-                catch { }
-            }
-
             _capture.Start(15, source);
 
             _streaming = true;
@@ -642,6 +634,18 @@ private void BtnToggleApiKey_Click(object sender, RoutedEventArgs e)
             {
                 _activeStreams.Add(info);
                 UpdateMainArea();
+
+                // Send chat notification only when our own stream is confirmed by the server
+                if (info.StreamerUsername == _ts3.MyUsername && _ts3.IsConnected)
+                {
+                    var settings = _settings.Load();
+                    if (settings.NotificationChat)
+                        _ = Task.Run(async () =>
+                        {
+                            try { await _ts3.SendChannelMessageAsync($"[TS3SS] {info.StreamerUsername} started streaming"); }
+                            catch { }
+                        });
+                }
 
                 // Notify only when the streamer is in the same TS3 channel as us, and we are not the streamer
                 if (_ts3.IsConnected && info.ChannelId == _ts3.MyChannelId
