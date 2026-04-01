@@ -1,10 +1,5 @@
-#if defined(WIN32) || defined(__WIN32__) || defined(_WIN32)
 #pragma warning(disable: 4100) // unreferenced formal parameter
 #pragma warning(disable: 4996) // strncpy
-#define WIN32_LEAN_AND_MEAN
-#define NOMINMAX
-#include <windows.h>
-#endif
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -18,6 +13,30 @@
 #include "teamspeak/public_errors.h"
 
 #include "pipe_client.h"
+
+// ── Menu helper (mirrors SDK sample) ─────────────────────────────────────────
+static struct PluginMenuItem* createMenuItem(enum PluginMenuType type, int id,
+                                             const char* text, const char* icon)
+{
+    auto* item = static_cast<struct PluginMenuItem*>(malloc(sizeof(struct PluginMenuItem)));
+    item->type = type;
+    item->id   = id;
+    strncpy(item->text, text, PLUGIN_MENU_BUFSZ);
+    strncpy(item->icon, icon, PLUGIN_MENU_BUFSZ);
+    return item;
+}
+
+#define BEGIN_CREATE_MENUS(x)                                   \
+    const size_t _menu_sz = (x) + 1;                           \
+    size_t _menu_n = 0;                                         \
+    *menuItems = (struct PluginMenuItem**)malloc(               \
+        sizeof(struct PluginMenuItem*) * _menu_sz);
+
+#define CREATE_MENU_ITEM(a, b, c, d) (*menuItems)[_menu_n++] = createMenuItem(a, b, c, d);
+
+#define END_CREATE_MENUS                        \
+    (*menuItems)[_menu_n++] = nullptr;          \
+    assert(_menu_n == _menu_sz);
 
 #define PLUGIN_API_VERSION 26
 
@@ -140,7 +159,7 @@ void ts3plugin_onServerUpdatedEvent(uint64 scHandlerID)
 
 void ts3plugin_freeMemory(void* data) { free(data); }
 
-int  ts3plugin_offersConfigure()                                                { return PLUGIN_CONFIGURE_NOT_OFFERED; }
+int  ts3plugin_offersConfigure()                                                { return PLUGIN_OFFERS_NO_CONFIGURE; }
 void ts3plugin_configure(void* handle, void* qParentWidget)                     {}
 void ts3plugin_registerPluginID(const char* id)                                 {}
 const char* ts3plugin_commandKeyword()                                          { return nullptr; }
