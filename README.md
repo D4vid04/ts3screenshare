@@ -11,16 +11,39 @@ Screen sharing for TeamSpeak 3. Share your screen with people in the same TeamSp
 
 ## Client
 
+### Installation
+
+Download `TS3ScreenShare-Setup-v1.0.0.exe` from [Releases](https://github.com/D4vid04/ts3screenshare/releases) and run it.
+
+During installation you can optionally install the **TeamSpeak 3 plugin**, which adds:
+- Right-click menu on yourself → Start / Stop stream
+- Global plugin menu → Start / Stop stream
+- Notification sound (played through TS3 audio) when someone in your channel starts streaming
+- Auto-launch of the app when you join a TS3 server
+
 ### Requirements
-- Windows 10/11
-- .NET 8 Desktop Runtime
-- TeamSpeak 3 client
+- Windows 10/11 x64
+- TeamSpeak 3 client (for the plugin)
 
 ### Usage
+
 1. Enter your TeamSpeak ServerQuery API key (optional, needed for some TS3 server setups)
 2. Enter the relay server URL (e.g. `https://relay.yourdomain.com`)
 3. Click **Connect**
 4. Once connected, click **Start stream** to share your screen
+
+If the TS3 plugin is installed, the app launches and connects automatically when you join a TS3 server.
+
+## TS3 Plugin
+
+The plugin is installed together with the client (optional step in the installer). It provides:
+
+- **Start/Stop stream** in the right-click menu on your own client entry
+- **Start/Stop stream** in the global Plugins menu
+- **Notification sound** when someone in your current channel starts streaming (played via TS3 audio, respects TS3 volume settings)
+- **Auto-launch** — the app is opened automatically when you connect to a TS3 server
+
+The plugin communicates with the app via a named pipe (`\\.\pipe\TS3ScreenShare`).
 
 ## Relay Server
 
