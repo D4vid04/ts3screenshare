@@ -29,6 +29,7 @@ namespace TS3ScreenShare
         private readonly AudioCaptureService _audioCapture = new();
         private readonly AudioPlaybackService _audioPlayback = new();
         private readonly SettingsService _settings = new();
+        private readonly UpdateCheckService _updateChecker = new();
         private readonly ObservableCollection<SidebarItem> _sidebarItems = new();
         private readonly ObservableCollection<StreamInfo> _activeStreams = new();
 
@@ -80,7 +81,10 @@ namespace TS3ScreenShare
             _ts3.ChannelChanged += OnTs3ChannelChanged;
 
             _capture.FrameCaptured += OnFrameCaptured;
+            _capture.CaptureFailed += OnCaptureFailed;
             _audioCapture.DataAvailable += OnAudioCaptured;
+
+            _ = CheckForUpdateAsync();
         }
 
         private string ApiKeyValue =>
@@ -305,6 +309,34 @@ namespace TS3ScreenShare
         }
 
         // ── Audio capture → PCM → Relay ──────────────────────────────────────
+
+        private async Task CheckForUpdateAsync()
+        {
+            var update = await _updateChecker.CheckAsync();
+            if (update is null) return;
+
+            Dispatcher.Invoke(() =>
+            {
+                var result = MessageBox.Show(
+                    $"A new version of TS3ScreenShare is available: v{update.LatestVersion}\n\n" +
+                    $"You are running v{UpdateCheckService.CurrentVersion}.\n\n" +
+                    "Do you want to open the download page?",
+                    "Update Available", MessageBoxButton.YesNo, MessageBoxImage.Information);
+
+                if (result == MessageBoxResult.Yes)
+                    System.Diagnostics.Process.Start(
+                        new System.Diagnostics.ProcessStartInfo(update.ReleaseUrl)
+                        { UseShellExecute = true });
+            });
+        }
+
+        private void OnCaptureFailed(Exception ex)
+            => Dispatcher.Invoke(async () =>
+            {
+                try { await StopStreamAsync(); } catch { }
+                MessageBox.Show($"Screen capture failed after repeated errors:\n\n{ex.Message}",
+                    "Capture Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            });
 
         private void OnAudioCaptured(byte[] pcmData)
         {

@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -24,8 +25,11 @@ namespace TS3ScreenShare.Services
         // SendAsync reads responses from this channel instead of directly from _reader.
         private Channel<string> _responseQueue = Channel.CreateUnbounded<string>();
 
-        private readonly Dictionary<string, TS3ChannelInfo> _channels = new();
-        private readonly Dictionary<string, TS3ClientInfo> _clients = new();
+        // Async log writer — avoids synchronous file I/O on the hot read path
+        private readonly Channel<string> _logChannel = Channel.CreateUnbounded<string>();
+
+        private readonly ConcurrentDictionary<string, TS3ChannelInfo> _channels = new();
+        private readonly ConcurrentDictionary<string, TS3ClientInfo> _clients = new();
 
         public bool IsConnected { get; private set; }
         public string? MyClientId { get; private set; }
@@ -39,6 +43,12 @@ namespace TS3ScreenShare.Services
 
         private const string Host = "127.0.0.1";
         private const int Port = 25639;
+
+        public TS3QueryService()
+        {
+            // Start the background log writer for the lifetime of this service
+            _ = Task.Run(LogWriterAsync);
+        }
 
         public async Task ConnectAsync(string? apiKey = null)
         {
@@ -265,7 +275,7 @@ namespace TS3ScreenShare.Services
                 case "notifyclientleftview":
                 {
                     var clid = data.GetValueOrDefault("clid") ?? "";
-                    if (_clients.Remove(clid))
+                    if (_clients.TryRemove(clid, out _))
                         FireRosterUpdated();
                     break;
                 }
@@ -283,6 +293,47 @@ namespace TS3ScreenShare.Services
                         var old = MyChannelId ?? "";
                         MyChannelId = newCid;
                         ChannelChanged?.Invoke(old, newCid);
+                    }
+                    break;
+                }
+                case "notifyclientupdated":
+                {
+                    var clid = data.GetValueOrDefault("clid") ?? "";
+                    var nick = data.GetValueOrDefault("client_nickname");
+                    if (!string.IsNullOrEmpty(clid) && nick != null && _clients.TryGetValue(clid, out var existing))
+                    {
+                        _clients[clid] = existing with { Nickname = nick };
+                        FireRosterUpdated();
+                    }
+                    break;
+                }
+                case "notifychannelcreated":
+                {
+                    var cid  = data.GetValueOrDefault("cid")  ?? "";
+                    var name = data.GetValueOrDefault("channel_name") ?? cid;
+                    var pid  = data.GetValueOrDefault("cpid") ?? "0";
+                    if (!string.IsNullOrEmpty(cid))
+                    {
+                        _channels[cid] = new TS3ChannelInfo(cid, name, pid);
+                        FireRosterUpdated();
+                    }
+                    break;
+                }
+                case "notifychanneldeleted":
+                {
+                    var cid = data.GetValueOrDefault("cid") ?? "";
+                    if (_channels.TryRemove(cid, out _))
+                        FireRosterUpdated();
+                    break;
+                }
+                case "notifychanneledited":
+                {
+                    var cid  = data.GetValueOrDefault("cid") ?? "";
+                    var name = data.GetValueOrDefault("channel_name");
+                    if (!string.IsNullOrEmpty(cid) && name != null && _channels.TryGetValue(cid, out var ch))
+                    {
+                        _channels[cid] = ch with { Name = name };
+                        FireRosterUpdated();
                     }
                     break;
                 }
@@ -337,8 +388,17 @@ namespace TS3ScreenShare.Services
         private void Log(string msg)
         {
             var line = $"[{DateTime.Now:HH:mm:ss.fff}] {msg}";
-            Console.WriteLine(line);
-            System.IO.File.AppendAllText(LogFile, line + "\n");
+            _logChannel.Writer.TryWrite(line);
+        }
+
+        private async Task LogWriterAsync()
+        {
+            using var writer = new StreamWriter(LogFile, append: true) { AutoFlush = false };
+            await foreach (var line in _logChannel.Reader.ReadAllAsync())
+            {
+                await writer.WriteLineAsync(line);
+                await writer.FlushAsync();
+            }
         }
     }
 }
