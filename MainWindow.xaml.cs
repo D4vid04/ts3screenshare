@@ -100,6 +100,7 @@ namespace TS3ScreenShare
 
         private void SliderVolume_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
         {
+            if (TxtVolume == null) return; // fired during XAML init before controls are ready
             var volume = (int)SliderVolume.Value;
             TxtVolume.Text = $"{volume}%";
             var saved = _settings.Load();
