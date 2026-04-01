@@ -13,6 +13,19 @@ public sealed class TS3ServerQueryService(IOptionsMonitor<TS3ServerQueryOptions>
     private readonly IOptionsMonitor<TS3ServerQueryOptions> _opts = opts;
 
     /// <summary>
+    /// Verifies that the ServerQuery credentials are correct by performing a real login.
+    /// Throws if the connection or login fails.
+    /// </summary>
+    public async Task VerifyConnectionAsync()
+    {
+        var o = _opts.CurrentValue;
+        using var conn = new ServerQueryConnection(o.Host, o.Port);
+        await conn.ConnectAsync();
+        await conn.LoginAsync(o.Username, o.Password);
+        await conn.UseAsync(o.VirtualServerId);
+    }
+
+    /// <summary>
     /// Returns server group IDs for the client with the given client_database_id.
     /// Returns null if ServerQuery is not configured (= skip verification).
     /// </summary>
@@ -42,12 +55,25 @@ public sealed class TS3ServerQueryService(IOptionsMonitor<TS3ServerQueryOptions>
     }
 
     /// <summary>
+    /// Returns all client database IDs currently connected to the TS3 server.
+    /// </summary>
+    public async Task<IReadOnlySet<string>> GetOnlineClientDbIdsAsync()
+    {
+        var o = _opts.CurrentValue;
+        using var conn = new ServerQueryConnection(o.Host, o.Port);
+        await conn.ConnectAsync();
+        await conn.LoginAsync(o.Username, o.Password);
+        await conn.UseAsync(o.VirtualServerId);
+        return await conn.GetOnlineClientDbIdsAsync();
+    }
+
+    /// <summary>
     /// Finds the client whose away message contains the token "TS3SS-{token}".
     /// Retries up to retries times with delayMs delay (away message may propagate with a delay).
     /// Returns client_database_id, or null if the client was not found.
     /// </summary>
     public async Task<string?> FindClientByAwayMessageAsync(
-        string token, int retries = 8, int delayMs = 500)
+        string token, int retries = 5, int delayMs = 1500)
     {
         var o = _opts.CurrentValue;
         if (!o.IsConfigured)
@@ -112,6 +138,20 @@ public sealed class TS3ServerQueryService(IOptionsMonitor<TS3ServerQueryOptions>
 
         public async Task UseAsync(int virtualServerId)
             => await SendAsync($"use sid={virtualServerId}");
+
+        public async Task<IReadOnlySet<string>> GetOnlineClientDbIdsAsync()
+        {
+            var raw = await SendAsync("clientlist");
+            var result = new HashSet<string>();
+            foreach (var entry in raw.Split('|'))
+            {
+                var d = ParseLine(entry);
+                if (d.GetValueOrDefault("client_type") == "1") continue; // skip ServerQuery clients
+                var dbId = d.GetValueOrDefault("client_database_id");
+                if (!string.IsNullOrEmpty(dbId)) result.Add(dbId);
+            }
+            return result;
+        }
 
         public async Task<string?> FindByAwayMessageAsync(string expectedAwayMessage)
         {

@@ -23,6 +23,9 @@ namespace TS3ScreenShare.Services
         public event Action<string>? StreamDenied;
         public event Action<string>? ConnectionDenied;
         public event Action? Disconnected;
+        public event Action? ForceDisconnected;
+        public event Action? Reconnected;
+        public event Action? Reconnecting;
         // Auth events
         public event Action<string>? AuthChallengeReceived;
         public event Action<string>? AuthSucceeded;
@@ -56,8 +59,11 @@ namespace TS3ScreenShare.Services
                 AuthFailed?.Invoke(reason);
                 _authTcs?.TrySetException(new Exception(reason));
             });
+            _hub.On(HubEvents.ForceDisconnect, () => ForceDisconnected?.Invoke());
 
             _hub.Closed += _ => { Disconnected?.Invoke(); return Task.CompletedTask; };
+            _hub.Reconnecting += _ => { Reconnecting?.Invoke(); return Task.CompletedTask; };
+            _hub.Reconnected += _ => { Reconnected?.Invoke(); return Task.CompletedTask; };
 
             _cts = new CancellationTokenSource();
             await _hub.StartAsync(_cts.Token);
@@ -82,10 +88,10 @@ namespace TS3ScreenShare.Services
             await _hub!.InvokeAsync(HubMethods.ConfirmAuth, challenge);
         }
 
-        public async Task JoinChannelAsync(string channelId)
+        public async Task JoinChannelAsync(string channelId, string channelName = "")
         {
             EnsureConnected();
-            await _hub!.InvokeAsync(HubMethods.JoinChannel, channelId);
+            await _hub!.InvokeAsync(HubMethods.JoinChannel, channelId, channelName);
         }
 
         public async Task RegisterStreamAsync(string streamId, string channelId, string channelName,

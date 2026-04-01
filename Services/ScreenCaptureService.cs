@@ -15,14 +15,18 @@ namespace TS3ScreenShare.Services
         private System.Threading.Timer? _timer;
         private bool _capturing;
         private CaptureSource? _source;
+        private int _consecutiveErrors;
+        private const int MaxConsecutiveErrors = 5;
 
         public int Width { get; private set; }
         public int Height { get; private set; }
 
         public event Action<int, int, byte[]>? FrameCaptured;
+        public event Action<Exception>? CaptureFailed;
 
         public void Start(int fps, CaptureSource source)
         {
+            _consecutiveErrors = 0;
             _source = source;
 
             if (source.Type == CaptureSourceType.FullScreen)
@@ -90,8 +94,17 @@ namespace TS3ScreenShare.Services
                     FrameCaptured?.Invoke(bounds.Width, bounds.Height, bytes);
                 }
                 finally { bmp.UnlockBits(data); }
+
+                _consecutiveErrors = 0;
             }
-            catch { }
+            catch (Exception ex)
+            {
+                if (++_consecutiveErrors >= MaxConsecutiveErrors)
+                {
+                    Stop();
+                    CaptureFailed?.Invoke(ex);
+                }
+            }
         }
 
         private static void DrawCursorOnBitmap(Graphics g, Rectangle bounds)

@@ -29,6 +29,7 @@ namespace TS3ScreenShare
         private readonly AudioCaptureService _audioCapture = new();
         private readonly AudioPlaybackService _audioPlayback = new();
         private readonly SettingsService _settings = new();
+        private readonly UpdateCheckService _updateChecker = new();
         private readonly ObservableCollection<SidebarItem> _sidebarItems = new();
         private readonly ObservableCollection<StreamInfo> _activeStreams = new();
 
@@ -48,9 +49,15 @@ namespace TS3ScreenShare
             StreamList.ItemsSource = _activeStreams;
 
             var saved = _settings.Load();
-            var apiKey = !string.IsNullOrEmpty(saved.ApiKey)
-                ? saved.ApiKey
-                : TryReadTs3ApiKey() ?? "";
+            var ts3ApiKey = TryReadTs3ApiKey();
+            var apiKey = saved.ApiKey;
+
+            if (!string.IsNullOrEmpty(ts3ApiKey) && ts3ApiKey != saved.ApiKey)
+            {
+                apiKey = ts3ApiKey;
+                _settings.Save(new AppSettings { ApiKey = apiKey, RelayUrl = saved.RelayUrl });
+            }
+
             PwdApiKey.Password = apiKey;
             TxtApiKey.Text = apiKey;
             if (!string.IsNullOrEmpty(saved.RelayUrl)) TxtRelayUrl.Text = saved.RelayUrl;
@@ -66,12 +73,18 @@ namespace TS3ScreenShare
             _relay.StreamDenied += OnStreamDenied;
             _relay.ConnectionDenied += OnConnectionDenied;
             _relay.Disconnected += OnRelayDisconnected;
+            _relay.ForceDisconnected += OnRelayForceDisconnected;
             _relay.AuthChallengeReceived += OnAuthChallenge;
+            _relay.Reconnecting += OnRelayReconnecting;
+            _relay.Reconnected += OnRelayReconnected;
 
             _ts3.ChannelChanged += OnTs3ChannelChanged;
 
             _capture.FrameCaptured += OnFrameCaptured;
+            _capture.CaptureFailed += OnCaptureFailed;
             _audioCapture.DataAvailable += OnAudioCaptured;
+
+            _ = CheckForUpdateAsync();
         }
 
         private string ApiKeyValue =>
@@ -182,7 +195,8 @@ namespace TS3ScreenShare
                 // OnAuthChallenge handler sets away message and sends ConfirmAuth
                 await _relay.RequestAuthAsync();
 
-                await _relay.JoinChannelAsync(_ts3.MyChannelId ?? "0");
+                var myChannelId = _ts3.MyChannelId ?? "0";
+                await _relay.JoinChannelAsync(myChannelId, GetCurrentChannelName(myChannelId));
                 DotRelay.Fill = (Brush)FindResource("GreenBrush");
                 ValRelay.Text = "Connected";
                 BtnStartStream.IsEnabled = true;
@@ -296,12 +310,41 @@ namespace TS3ScreenShare
 
         // ── Audio capture → PCM → Relay ──────────────────────────────────────
 
+        private async Task CheckForUpdateAsync()
+        {
+            var update = await _updateChecker.CheckAsync();
+            if (update is null) return;
+
+            Dispatcher.Invoke(() =>
+            {
+                var result = MessageBox.Show(
+                    $"A new version of TS3ScreenShare is available: v{update.LatestVersion}\n\n" +
+                    $"You are running v{UpdateCheckService.CurrentVersion}.\n\n" +
+                    "Do you want to open the download page?",
+                    "Update Available", MessageBoxButton.YesNo, MessageBoxImage.Information);
+
+                if (result == MessageBoxResult.Yes)
+                    System.Diagnostics.Process.Start(
+                        new System.Diagnostics.ProcessStartInfo(update.ReleaseUrl)
+                        { UseShellExecute = true });
+            });
+        }
+
+        private void OnCaptureFailed(Exception ex)
+            => Dispatcher.Invoke(async () =>
+            {
+                try { await StopStreamAsync(); } catch { }
+                MessageBox.Show($"Screen capture failed after repeated errors:\n\n{ex.Message}",
+                    "Capture Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            });
+
         private void OnAudioCaptured(byte[] pcmData)
         {
             if (!_streaming || _currentStreamId == null) return;
+            var streamId = _currentStreamId;
             _ = Task.Run(async () =>
             {
-                try { await _relay.SendAudioFrameAsync(_currentStreamId!, pcmData); }
+                try { await _relay.SendAudioFrameAsync(streamId, pcmData); }
                 catch { }
             });
         }
@@ -313,12 +356,13 @@ namespace TS3ScreenShare
             if (!_streaming || _currentStreamId == null) return;
             if (Interlocked.CompareExchange(ref _sendingFrame, 1, 0) != 0) return; // skip frame if previous send is still in progress
 
+            var streamId = _currentStreamId;
             _ = Task.Run(async () =>
             {
                 try
                 {
                     var jpeg = BgrToJpeg(bgrBytes, width, height);
-                    await _relay.SendVideoFrameAsync(_currentStreamId!, jpeg);
+                    await _relay.SendVideoFrameAsync(streamId, jpeg);
                 }
                 finally
                 {
@@ -540,6 +584,96 @@ namespace TS3ScreenShare
                 BtnStartStream.IsEnabled = false;
             });
 
+        private void OnRelayReconnecting()
+            => Dispatcher.Invoke(() =>
+            {
+                DotRelay.Fill = (Brush)FindResource("DimBrush");
+                ValRelay.Text = "Reconnecting...";
+            });
+
+        private void OnRelayReconnected()
+        {
+            // SignalR reconnect restores the transport but all server-side state is gone.
+            // Re-run auth + JoinChannel, then restore any active stream or viewer session.
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await _relay.RequestAuthAsync();
+                    var channelId = _ts3.MyChannelId ?? "0";
+                    var channelName = Dispatcher.Invoke(() => GetCurrentChannelName(channelId));
+                    await _relay.JoinChannelAsync(channelId, channelName);
+
+                    // Re-register stream if one was active before the disconnect
+                    if (_streaming && _currentStreamId != null)
+                    {
+                        var username = _ts3.MyUsername ?? "unknown";
+                        await _relay.RegisterStreamAsync(_currentStreamId, channelId, channelName,
+                            username, _audioCapture.SampleRate, _audioCapture.Channels);
+                    }
+
+                    // Re-subscribe to stream if viewer was active before the disconnect
+                    if (_viewing && _viewingStreamId != null)
+                        await _relay.WatchStreamAsync(_viewingStreamId);
+
+                    Dispatcher.Invoke(() =>
+                    {
+                        DotRelay.Fill = (Brush)FindResource("GreenBrush");
+                        ValRelay.Text = "Connected";
+                        BtnStartStream.IsEnabled = true;
+                    });
+                }
+                catch
+                {
+                    // Reconnect failed — reset local stream/viewer state so the UI
+                    // doesn't show an active session the server no longer knows about.
+                    Dispatcher.Invoke(() =>
+                    {
+                        if (_streaming)
+                        {
+                            _capture.Stop();
+                            _audioCapture.Stop();
+                            _streaming = false;
+                            _currentStreamId = null;
+                            BtnStartStream.Content = "▶  Start stream";
+                            StreamStatusText.Text = "";
+                        }
+
+                        if (_viewing)
+                        {
+                            _viewing = false;
+                            _viewingStreamId = null;
+                            VideoDisplay.Visibility = Visibility.Collapsed;
+                            VideoDisplay.Source = null;
+                            _audioPlayback.Stop();
+                            BtnMute.Visibility = Visibility.Collapsed;
+                            BtnMute.Content = "🔊";
+                            UpdateMainArea();
+                        }
+
+                        DotRelay.Fill = (Brush)FindResource("RedBrush");
+                        ValRelay.Text = "Error";
+                        BtnStartStream.IsEnabled = false;
+                    });
+                }
+            });
+        }
+
+        private void OnRelayForceDisconnected()
+            => Dispatcher.Invoke(async () =>
+            {
+                try { if (_streaming) await StopStreamAsync(); } catch { }
+                try { if (_viewing) await StopViewingAsync(); } catch { }
+                try { await _relay.DisconnectAsync(); } catch { }
+                DotRelay.Fill = (Brush)FindResource("RedBrush");
+                ValRelay.Text = "Disconnected";
+                BtnStartStream.IsEnabled = false;
+                BtnConnect.Content = "Connect";
+                MessageBox.Show(
+                    "You have been disconnected from the relay server because you left the TeamSpeak server.",
+                    "Disconnected", MessageBoxButton.OK, MessageBoxImage.Warning);
+            });
+
         private void OnStreamsReset(IReadOnlyList<StreamInfo> streams)
             => Dispatcher.Invoke(() =>
             {
@@ -593,9 +727,10 @@ namespace TS3ScreenShare
         private void OnTs3ChannelChanged(string oldId, string newId)
         {
             if (!_relay.IsConnected) return;
+            var channelName = GetCurrentChannelName(newId);
             _ = Task.Run(async () =>
             {
-                try { await _relay.JoinChannelAsync(newId); }
+                try { await _relay.JoinChannelAsync(newId, channelName); }
                 catch { }
             });
         }
