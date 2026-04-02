@@ -30,3 +30,6 @@ test_ts3.ps1
 # Installer build artifacts
 publish/
 installer/output/
+
+# Claude Code local settings
+.claude/
