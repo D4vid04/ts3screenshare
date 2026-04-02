@@ -64,7 +64,7 @@ services:
       - TS3ServerQuery__Host=localhost
       - TS3ServerQuery__Port=10011
       - TS3ServerQuery__Username=serveradmin
-      - TS3ServerQuery__Password=CHANGE_ME
+      - TS3ServerQuery__Password=ECZvJs5L
 ```
 
 > The server will refuse to start if ServerQuery credentials are missing or incorrect.
@@ -78,7 +78,6 @@ services:
 | `TS3ServerQuery__Username` | Yes | `serveradmin` | ServerQuery username |
 | `TS3ServerQuery__Password` | Yes | — | ServerQuery password |
 | `TS3ServerQuery__VirtualServerId` | No | `1` | Virtual server ID |
-| `HubKey` | No | — | Shared secret key required to connect to the hub. Leave empty to disable. |
 
 #### Access control
 
