@@ -276,6 +276,10 @@ public sealed class StreamHub(
         await Clients.Group($"stream-{streamId}").SendAsync(HubEvents.ReceiveVideoFrame, streamId, frame);
     }
 
+    // ── Heartbeat (keeps Cloudflare Tunnel / reverse proxy alive) ───────────
+    public async Task Ping()
+        => await Clients.Caller.SendAsync(HubEvents.Pong);
+
     // ── Streamer sends an audio frame (relayed to all viewers) ──────────────
     public async Task SendAudioFrame(string streamId, byte[] frame)
     {

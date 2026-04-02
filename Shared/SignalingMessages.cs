@@ -26,6 +26,7 @@ public static class HubMethods
     public const string JoinChannel      = nameof(JoinChannel);
     public const string RequestAuth      = nameof(RequestAuth);
     public const string ConfirmAuth      = nameof(ConfirmAuth);
+    public const string Ping             = nameof(Ping);
 }
 
 // Hub events (server → client)
@@ -44,4 +45,5 @@ public static class HubEvents
     public const string AuthFailed        = nameof(AuthFailed);
     // Server-initiated disconnect (e.g. left TS3 server)
     public const string ForceDisconnect   = nameof(ForceDisconnect);
+    public const string Pong              = nameof(Pong);
 }

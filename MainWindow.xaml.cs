@@ -43,6 +43,9 @@ namespace TS3ScreenShare
         private bool _viewing;
         private string? _viewingStreamId;
 
+        private System.Threading.Timer? _heartbeatTimer;
+        private const int HeartbeatIntervalMs = 30_000;
+
         private const string DefaultRelayUrl = "wss://0.0.0.0:5000";
 
         public MainWindow()
@@ -194,6 +197,7 @@ private void BtnToggleApiKey_Click(object sender, RoutedEventArgs e)
                     await _relay.RequestAuthAsync();
                     var myChannelId = _ts3.MyChannelId ?? "0";
                     await _relay.JoinChannelAsync(myChannelId, GetCurrentChannelName(myChannelId));
+                    StartHeartbeat();
                     DotRelay.Fill = (Brush)FindResource("GreenBrush");
                     ValRelay.Text = "Connected";
                     BtnStartStream.IsEnabled = true;
@@ -254,6 +258,7 @@ private void BtnToggleApiKey_Click(object sender, RoutedEventArgs e)
 
                 var myChannelId = _ts3.MyChannelId ?? "0";
                 await _relay.JoinChannelAsync(myChannelId, GetCurrentChannelName(myChannelId));
+                StartHeartbeat();
                 DotRelay.Fill = (Brush)FindResource("GreenBrush");
                 ValRelay.Text = "Connected";
                 BtnStartStream.IsEnabled = true;
@@ -282,6 +287,7 @@ private void BtnToggleApiKey_Click(object sender, RoutedEventArgs e)
             BtnConnect.IsEnabled = false;
             BtnConnect.Content = "Disconnecting...";
 
+            StopHeartbeat();
             try { if (_viewing) await StopViewingAsync(); } catch { }
             try { if (_streaming) await StopStreamAsync(); } catch { }
             try { await _relay.DisconnectAsync(); } catch { }
@@ -675,6 +681,22 @@ private void BtnToggleApiKey_Click(object sender, RoutedEventArgs e)
                 else
                     UpdateMainArea();
             });
+
+        private void StartHeartbeat()
+        {
+            _heartbeatTimer?.Dispose();
+            _heartbeatTimer = new System.Threading.Timer(async _ =>
+            {
+                try { await _relay.PingAsync(); }
+                catch { /* ignore — connection may be in reconnecting state */ }
+            }, null, HeartbeatIntervalMs, HeartbeatIntervalMs);
+        }
+
+        private void StopHeartbeat()
+        {
+            _heartbeatTimer?.Dispose();
+            _heartbeatTimer = null;
+        }
 
         private void OnRelayDisconnected()
             => Dispatcher.Invoke(() =>

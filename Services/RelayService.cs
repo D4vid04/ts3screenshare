@@ -132,6 +132,12 @@ namespace TS3ScreenShare.Services
             await _hub.InvokeAsync(HubMethods.SendAudioFrame, streamId, frameBytes);
         }
 
+        public async Task PingAsync()
+        {
+            if (_hub?.State != HubConnectionState.Connected) return;
+            await _hub.InvokeAsync(HubMethods.Ping);
+        }
+
         public async Task DisconnectAsync()
         {
             _cts?.Cancel();

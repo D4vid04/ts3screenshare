@@ -3,6 +3,11 @@ using TS3ScreenShare.Server;
 
 var builder = WebApplication.CreateBuilder(args);
 
+builder.Logging.AddSimpleConsole(options =>
+{
+    options.TimestampFormat = "HH:mm:ss ";
+});
+
 builder.Services.AddSignalR(options =>
 {
     options.MaximumReceiveMessageSize = 2 * 1024 * 1024; // 2 MB for video frames
